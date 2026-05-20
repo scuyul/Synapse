@@ -32,6 +32,14 @@ Train PPO after installing optional RL dependencies. The trainer defaults to `--
 python .\scripts\train_ppo.py --timesteps 100000 --device auto --n-envs 8
 ```
 
+Training streams a live preview rollout to AdvantageScope by default. While training runs, connect AdvantageScope to NetworkTables at `127.0.0.1` and watch the same `/AdvantageScope/*`, `/Sim/*`, and `/RL/*` topics. Use `--no-advantagescope` to disable this.
+
+Run a saved trained model:
+
+```powershell
+python .\scripts\run_trained_model.py --model .\models\reefscape_ppo.zip --fixed-start --loop
+```
+
 For this machine, CUDA PyTorch is expected. Verify it with:
 
 ```powershell
@@ -55,6 +63,7 @@ Then in AdvantageScope:
 5. Optionally add `/AdvantageScope/ReefScoringPoses` as a pose array/object set.
 6. Plot `/Sim/IsIntaking`, `/Sim/IsScoring`, `/Sim/IntakeProgress`, `/Sim/ScoreProgress`, `/Sim/HasCoral`, and `/Sim/ScoredCoral` to see pickup/placement timing.
 7. Tune `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS` live in NetworkTables. Both default to `0.25`.
+8. During RL training, plot `/RL/TrainingStep`, `/RL/PreviewEpisodeReturn`, and `/RL/PreviewEpisode`.
 
 The CSV logger still exists for quick plots/debugging outside AdvantageScope:
 

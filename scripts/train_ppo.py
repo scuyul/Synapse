@@ -17,6 +17,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-steps", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--no-advantagescope", action="store_true")
+    parser.add_argument("--advantage-port", type=int, default=5810)
+    parser.add_argument("--viz-every-steps", type=int, default=512)
+    parser.add_argument("--viz-preview-steps", type=int, default=25)
     parser.add_argument(
         "--device",
         choices=("auto", "cuda", "cpu"),
@@ -32,6 +36,10 @@ def main() -> int:
         from stable_baselines3 import PPO
         from stable_baselines3.common.env_util import make_vec_env
         from reefscape_rl.gymnasium_env import GymnasiumReefscapeEnv
+        from reefscape_rl.training_viz import (
+            AdvantageScopeTrainingCallback,
+            TrainingVisualizationConfig,
+        )
     except ImportError as exc:
         print(exc)
         print("Install optional dependencies with: pip install -e .[rl]")
@@ -66,7 +74,19 @@ def main() -> int:
         learning_rate=args.learning_rate,
         policy_kwargs={"net_arch": [256, 256]},
     )
-    model.learn(total_timesteps=args.timesteps)
+    callback = None
+    if not args.no_advantagescope:
+        callback = AdvantageScopeTrainingCallback(
+            TrainingVisualizationConfig(
+                port=args.advantage_port,
+                every_steps=args.viz_every_steps,
+                preview_steps=args.viz_preview_steps,
+            )
+        )
+        print("Training visualization enabled for AdvantageScope.")
+        print(f"Connect AdvantageScope to NetworkTables at 127.0.0.1:{args.advantage_port}")
+
+    model.learn(total_timesteps=args.timesteps, callback=callback)
     model.save(args.model_out)
     print(f"Wrote {args.model_out}")
     return 0

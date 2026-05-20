@@ -35,6 +35,9 @@ class AdvantageScopeNtPublisher:
     score_duration_pub: object
     intake_duration_sub: object
     score_duration_sub: object
+    training_step_pub: object
+    preview_return_pub: object
+    preview_episode_pub: object
 
     @classmethod
     def start_server(cls, *, port: int = 5810) -> "AdvantageScopeNtPublisher":
@@ -78,6 +81,9 @@ class AdvantageScopeNtPublisher:
             score_duration_pub=score_duration_pub,
             intake_duration_sub=intake_duration_topic.subscribe(0.25),
             score_duration_sub=score_duration_topic.subscribe(0.25),
+            training_step_pub=inst.getIntegerTopic("/RL/TrainingStep").publish(),
+            preview_return_pub=inst.getDoubleTopic("/RL/PreviewEpisodeReturn").publish(),
+            preview_episode_pub=inst.getIntegerTopic("/RL/PreviewEpisode").publish(),
         )
 
     def apply_tunables(self, env: ReefscapeEnv) -> None:
@@ -104,6 +110,18 @@ class AdvantageScopeNtPublisher:
         self.score_progress_pub.set(float(state.score_progress_s))
         self.is_intaking_pub.set(bool(state.is_intaking))
         self.is_scoring_pub.set(bool(state.is_scoring))
+        self.inst.flush()
+
+    def publish_training(
+        self,
+        *,
+        training_step: int,
+        preview_episode_return: float,
+        preview_episode: int,
+    ) -> None:
+        self.training_step_pub.set(int(training_step))
+        self.preview_return_pub.set(float(preview_episode_return))
+        self.preview_episode_pub.set(int(preview_episode))
         self.inst.flush()
 
 
