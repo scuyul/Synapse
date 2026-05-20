@@ -11,15 +11,17 @@ except ImportError as exc:  # pragma: no cover - optional dependency guard
         "Install optional RL dependencies first: pip install -e .[rl]"
     ) from exc
 
+from reefscape_rl.action_adapter import ResidualHeuristicActionAdapter
 from reefscape_rl.env import OBSERVATION_FIELDS, ReefscapeEnv, ReefscapeEnvConfig
 
 
 class GymnasiumReefscapeEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, config: ReefscapeEnvConfig | None = None):
+    def __init__(self, config: ReefscapeEnvConfig | None = None, residual_heuristic: bool = True):
         super().__init__()
-        self.env = ReefscapeEnv(config)
+        self.env = ReefscapeEnv(config or ReefscapeEnvConfig(auto_mechanisms=True))
+        self.action_adapter = ResidualHeuristicActionAdapter() if residual_heuristic else None
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(5,), dtype=np.float32)
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -34,7 +36,10 @@ class GymnasiumReefscapeEnv(gym.Env):
         return np.asarray(observation, dtype=np.float32), info
 
     def step(self, action):
-        observation, reward, terminated, truncated, info = self.env.step(action.tolist())
+        sim_action = action.tolist()
+        if self.action_adapter is not None:
+            sim_action = self.action_adapter.adapt(self.env, sim_action)
+        observation, reward, terminated, truncated, info = self.env.step(sim_action)
         return (
             np.asarray(observation, dtype=np.float32),
             float(reward),

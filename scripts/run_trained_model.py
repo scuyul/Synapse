@@ -11,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import numpy as np
 
+from reefscape_rl.action_adapter import ResidualHeuristicActionAdapter
 from reefscape_rl.env import ReefscapeEnv, ReefscapeEnvConfig
 from reefscape_rl.nt_publisher import AdvantageScopeNtPublisher
 
@@ -27,6 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--fixed-start", action="store_true")
     parser.add_argument("--deterministic", action="store_true")
+    parser.add_argument("--manual-mechanisms", action="store_true")
+    parser.add_argument("--raw-actions", action="store_true")
     return parser.parse_args()
 
 
@@ -44,7 +47,13 @@ def main() -> int:
         return 2
 
     model = PPO.load(args.model)
-    env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=not args.fixed_start))
+    env = ReefscapeEnv(
+        ReefscapeEnvConfig(
+            randomize_start=not args.fixed_start,
+            auto_mechanisms=not args.manual_mechanisms,
+        )
+    )
+    action_adapter = None if args.raw_actions else ResidualHeuristicActionAdapter()
     publisher = AdvantageScopeNtPublisher.start_server(port=args.port)
 
     print(f"Loaded model: {args.model}")
@@ -64,7 +73,10 @@ def main() -> int:
                     np.asarray(obs, dtype=np.float32),
                     deterministic=args.deterministic,
                 )
-                obs, reward, terminated, truncated, info = env.step(action)
+                sim_action = action
+                if action_adapter is not None:
+                    sim_action = action_adapter.adapt(env, action)
+                obs, reward, terminated, truncated, info = env.step(sim_action)
                 episode_return += float(reward)
                 publisher.publish(env, reward=float(reward))
                 publisher.publish_training(

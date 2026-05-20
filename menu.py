@@ -91,6 +91,9 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
     checkpoint_dir = prompt_text("Checkpoint directory", "models/checkpoints")
     checkpoint_every = prompt_int("Checkpoint every N steps", 10_000)
     keep_checkpoints = prompt_int("Keep latest N checkpoints", 2)
+    heuristic_pretrain = prompt_bool("Pretrain from heuristic first", not resume)
+    pretrain_samples = prompt_int("Heuristic pretrain samples", 50_000)
+    pretrain_epochs = prompt_int("Heuristic pretrain epochs", 10)
     advantagescope = prompt_bool("Stream training preview to AdvantageScope", True)
     port = prompt_int("AdvantageScope NT port", 5810)
     viz_every = prompt_int("Preview every N training steps", 64 if smoke else 512)
@@ -119,6 +122,10 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
         str(checkpoint_every),
         "--keep-checkpoints",
         str(keep_checkpoints),
+        "--pretrain-heuristic-samples",
+        str(pretrain_samples),
+        "--pretrain-heuristic-epochs",
+        str(pretrain_epochs),
         "--advantage-port",
         str(port),
         "--viz-every-steps",
@@ -128,6 +135,8 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
     ]
     if resume_from:
         cmd.extend(["--resume-from", resume_from])
+    if not heuristic_pretrain:
+        cmd.append("--skip-heuristic-pretrain")
     if not advantagescope:
         cmd.append("--no-advantagescope")
     run_command(cmd)

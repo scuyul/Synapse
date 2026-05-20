@@ -45,6 +45,7 @@ from reefscape_rl.constants import (
     SCORE_HEADING_TOLERANCE_RAD,
     SCORE_DURATION_S,
     SCORE_RADIUS_M,
+    SCORE_TRIGGER_RADIUS_M,
     SCORING_POINTS_TELEOP,
 )
 from reefscape_rl.geometry import Pose2d, angle_to, approach, clamp, normalize_angle
@@ -88,6 +89,7 @@ class ReefscapeEnvConfig:
     hold_action_reward: float = 0.03
     intake_duration_s: float = INTAKE_DURATION_S
     score_duration_s: float = SCORE_DURATION_S
+    auto_mechanisms: bool = False
 
 
 @dataclass(slots=True)
@@ -162,6 +164,9 @@ class ReefscapeEnv:
         action_omega = clamp(float(action[2]), -1.0, 1.0)
         wants_intake = float(action[3]) > 0.5
         wants_score = float(action[4]) > 0.5
+        if self.config.auto_mechanisms:
+            wants_intake = wants_intake or (not state.has_coral and self._can_intake())
+            wants_score = wants_score or (state.has_coral and self._can_score())
 
         reward = self.config.timestep_penalty
         event_code = 0
@@ -203,9 +208,9 @@ class ReefscapeEnv:
                 state.current_source_index = self._nearest_source_index(state.pose)
                 state.current_goal_index = self._next_goal_index()
         else:
-            if wants_intake and state.has_coral:
+            if wants_intake:
                 reward += self.config.invalid_action_penalty
-            if wants_score and not state.has_coral:
+            if wants_score:
                 reward += self.config.invalid_action_penalty
 
         if not mechanism_active:
@@ -217,6 +222,7 @@ class ReefscapeEnv:
         reward += self.config.progress_reward_scale * (
             prev_objective_distance - objective_distance
         )
+        reward += self._settle_reward(objective_distance)
 
         if not mechanism_active:
             state.intake_progress_s = 0.0
@@ -377,7 +383,7 @@ class ReefscapeEnv:
     def _can_score(self) -> bool:
         state = self._require_state()
         goal = self.current_goal_pose()
-        distance_ok = state.pose.distance_to(goal) <= SCORE_RADIUS_M
+        distance_ok = state.pose.distance_to(goal) <= SCORE_TRIGGER_RADIUS_M
         heading_error = abs(normalize_angle(goal.heading - state.pose.heading))
         heading_ok = heading_error <= SCORE_HEADING_TOLERANCE_RAD
         return distance_ok and heading_ok and self._is_settled()
@@ -392,6 +398,13 @@ class ReefscapeEnv:
             linear_speed <= MECHANISM_LINEAR_SETTLE_MPS
             and abs(state.omega_radps) <= MECHANISM_ANGULAR_SETTLE_RADPS
         )
+
+    def _settle_reward(self, objective_distance: float) -> float:
+        if objective_distance > 0.45:
+            return 0.0
+        state = self._require_state()
+        speed = math.hypot(state.vx_mps, state.vy_mps)
+        return 0.05 * (0.45 - objective_distance) - 0.03 * speed
 
     def _hold_still(self) -> None:
         state = self._require_state()

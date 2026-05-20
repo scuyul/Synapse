@@ -40,6 +40,8 @@ python .\scripts\train_ppo.py --timesteps 100000 --device auto --n-envs 8
 
 Training streams a live preview rollout to AdvantageScope by default. While training runs, connect AdvantageScope to NetworkTables at `127.0.0.1` and watch the same `/AdvantageScope/*`, `/Sim/*`, and `/RL/*` topics. Use `--no-advantagescope` to disable this.
 
+New models train as residual controllers on top of the working heuristic pathing driver. The RL policy learns corrections, while the baseline prevents jitter and keeps the robot moving toward valid targets. The training environment also auto-runs intake/score once the robot is settled at the correct place. Use `--raw-actions` when running a model only if you intentionally trained a fully raw policy.
+
 Run a saved trained model:
 
 ```powershell

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 
+from reefscape_rl.action_adapter import ResidualHeuristicActionAdapter
 from reefscape_rl.env import ReefscapeEnv, ReefscapeEnvConfig
 from reefscape_rl.nt_publisher import AdvantageScopeNtPublisher
 
@@ -26,7 +27,10 @@ class AdvantageScopeTrainingCallback(BaseCallback):
         super().__init__()
         self.config = config
         self.publisher: AdvantageScopeNtPublisher | None = None
-        self.preview_env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        self.preview_env = ReefscapeEnv(
+            ReefscapeEnvConfig(randomize_start=False, auto_mechanisms=True)
+        )
+        self.action_adapter = ResidualHeuristicActionAdapter()
         self.preview_obs: np.ndarray | None = None
         self.preview_episode = 0
         self.preview_return = 0.0
@@ -52,7 +56,8 @@ class AdvantageScopeTrainingCallback(BaseCallback):
         for _ in range(self.config.preview_steps):
             self.publisher.apply_tunables(self.preview_env)
             action, _ = self.model.predict(self.preview_obs, deterministic=True)
-            obs, reward, terminated, truncated, _ = self.preview_env.step(action)
+            sim_action = self.action_adapter.adapt(self.preview_env, action)
+            obs, reward, terminated, truncated, _ = self.preview_env.step(sim_action)
             self.preview_obs = np.asarray(obs, dtype=np.float32)
             self.preview_return += float(reward)
             self.publisher.publish(self.preview_env, reward=float(reward))

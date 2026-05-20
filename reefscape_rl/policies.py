@@ -46,8 +46,11 @@ class HeuristicCyclePolicy:
         objective = env.current_objective_pose()
         objective_distance = state.pose.distance_to(objective)
         source_return_target = self._source_return_waypoint(env, objective.x, objective.y)
+        scoring_route_target = self._scoring_route_waypoint(env, objective.x, objective.y)
         if source_return_target is not None:
             target_x, target_y = source_return_target
+        elif scoring_route_target is not None:
+            target_x, target_y = scoring_route_target
         elif state.has_coral and objective_distance < 2.0:
             target_x, target_y = objective.x, objective.y
         else:
@@ -118,6 +121,29 @@ class HeuristicCyclePolicy:
         if state.pose.x > center_x - 0.2:
             return (state.pose.x - 0.8, exit_y)
         return (exit_x, lane_y)
+
+    def _scoring_route_waypoint(
+        self, env: ReefscapeEnv, goal_x: float, goal_y: float
+    ) -> tuple[float, float] | None:
+        state = env.state
+        if state is None or not state.has_coral:
+            return None
+
+        center_x, center_y = BLUE_REEF_CENTER
+        if goal_x <= center_x + 1.0:
+            return None
+
+        if abs(goal_y - center_y) < 0.15:
+            lane_y = center_y + 2.45 if state.pose.y > center_y else center_y - 2.45
+        else:
+            lane_y = center_y + 2.45 if goal_y > center_y else center_y - 2.45
+        entry = (center_x - 0.55, lane_y)
+        exit_point = (center_x + 1.55, lane_y)
+        if state.pose.distance_to(entry) > 0.25 and state.pose.x < center_x - 0.25:
+            return entry
+        if state.pose.distance_to(exit_point) > 0.25 and state.pose.x < goal_x - 0.45:
+            return exit_point
+        return None
 
     def _avoid_reef_waypoint(
         self, start_x: float, start_y: float, goal_x: float, goal_y: float

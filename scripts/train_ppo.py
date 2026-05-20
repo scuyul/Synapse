@@ -24,6 +24,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("models/checkpoints"))
     parser.add_argument("--checkpoint-every-steps", type=int, default=10_000)
     parser.add_argument("--keep-checkpoints", type=int, default=2)
+    parser.add_argument("--pretrain-heuristic-samples", type=int, default=50_000)
+    parser.add_argument("--pretrain-heuristic-epochs", type=int, default=10)
+    parser.add_argument("--skip-heuristic-pretrain", action="store_true")
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Compatibility flag. AdvantageScope preview is already enabled unless --no-advantagescope is set.",
+    )
     parser.add_argument("--no-advantagescope", action="store_true")
     parser.add_argument("--advantage-port", type=int, default=5810)
     parser.add_argument("--viz-every-steps", type=int, default=512)
@@ -48,6 +56,7 @@ def main() -> int:
             AdvantageScopeTrainingCallback,
             TrainingVisualizationConfig,
         )
+        from reefscape_rl.imitation import ImitationConfig, pretrain_from_heuristic
     except ImportError as exc:
         print(exc)
         print("Install optional dependencies with: pip install -e .[rl]")
@@ -89,6 +98,14 @@ def main() -> int:
             learning_rate=args.learning_rate,
             policy_kwargs={"net_arch": [256, 256]},
         )
+        if not args.skip_heuristic_pretrain:
+            pretrain_from_heuristic(
+                model,
+                ImitationConfig(
+                    samples=args.pretrain_heuristic_samples,
+                    epochs=args.pretrain_heuristic_epochs,
+                ),
+            )
 
     callbacks: list[BaseCallback] = []
     if not args.no_advantagescope:
