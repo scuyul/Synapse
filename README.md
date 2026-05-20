@@ -8,7 +8,7 @@ The current simulator is intentionally small:
 - Coral-only cycling between coral stations and the reef.
 - Continuous action commands: field-relative `vx`, `vy`, `omega`, intake command, score command.
 - Filtered observations: robot pose/velocity, held-coral state, coral/source pose, goal pose, moving robot pose/velocity, time remaining, and score count.
-- Reward shaping for progress, acquisition, scoring, illegal/out-of-bounds behavior, reef collisions, low-speed taps, and hard robot-to-robot impacts.
+- Reward shaping for progress, acquisition, scoring, illegal/out-of-bounds behavior, reef collisions, low-speed taps, hard robot-to-robot impacts, and freezing far from the objective.
 - live NetworkTables telemetry for AdvantageScope 2D Field visualization.
 - CSV logs for fallback debugging outside AdvantageScope.
 
@@ -89,7 +89,7 @@ Then in AdvantageScope:
 3. Add `/AdvantageScope/RobotPose` as the robot pose.
 4. Add `/AdvantageScope/OtherRobotPose`, `/AdvantageScope/CoralPose`, `/AdvantageScope/GoalPose`, and `/AdvantageScope/ObjectivePose` as object poses.
 5. Optionally add `/AdvantageScope/ReefScoringPoses` as a pose array/object set.
-6. Plot `/Sim/IsIntaking`, `/Sim/IsScoring`, `/Sim/IntakeProgress`, `/Sim/ScoreProgress`, `/Sim/HasCoral`, `/Sim/ScoredCoral`, `/Sim/OtherRobotDistance`, `/Sim/HitOtherRobot`, `/Sim/HardHitOtherRobot`, `/Sim/OtherRobotHits`, `/Sim/OtherRobotHardHits`, and `/Sim/OtherRobotImpactSpeed` to see pickup/placement timing and collision severity.
+6. Plot `/Sim/IsIntaking`, `/Sim/IsScoring`, `/Sim/IntakeProgress`, `/Sim/ScoreProgress`, `/Sim/HasCoral`, `/Sim/ScoredCoral`, `/Sim/FrozenTime`, `/Sim/OtherRobotDistance`, `/Sim/HitOtherRobot`, `/Sim/HardHitOtherRobot`, `/Sim/OtherRobotHits`, `/Sim/OtherRobotHardHits`, and `/Sim/OtherRobotImpactSpeed` to see pickup/placement timing, stalls, and collision severity.
 7. Tune `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS` live in NetworkTables. Both default to `0.25`.
 8. During RL training, plot `/RL/TrainingStep`, `/RL/PreviewEpisodeReturn`, and `/RL/PreviewEpisode`.
 

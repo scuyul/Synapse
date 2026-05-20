@@ -20,6 +20,7 @@ This simulator is not a full official field simulator yet. It is a training scaf
 - Pickup and placement durations are tunable live through `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS`.
 - The reef is modeled as a circular keepout obstacle that pushes the robot out and applies a collision penalty.
 - The traffic robot follows a repeatable path on the blue side, appears in observations/telemetry, allows small low-speed taps, and applies penalties only on physical body contact.
+- Freezing far from the current objective is explicitly penalized after a short grace period; mechanism pauses are exempt.
 - Algae, processor, net, barge, cages, full foul logic, and exact protected-zone rules are not simulated yet.
 - AdvantageScope visualization uses live NT4 struct telemetry from `scripts/live_advantagescope.py`.
 - CSV logs are fallback/debug artifacts, not the main AdvantageScope visualization path.

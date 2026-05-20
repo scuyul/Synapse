@@ -103,6 +103,19 @@ class ReefscapeEnvTests(unittest.TestCase):
         self.assertEqual(info["other_robot_hard_hits"], 1)
         self.assertGreaterEqual(info["other_robot_impact_speed_mps"], 1.0)
 
+    def test_freezing_far_from_objective_is_penalized(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+
+        rewards = []
+        info = {}
+        for _ in range(12):
+            _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+            rewards.append(reward)
+
+        self.assertGreater(info["frozen_time_s"], env.config.freeze_grace_s)
+        self.assertLess(rewards[-1], rewards[0])
+
 
 if __name__ == "__main__":
     unittest.main()

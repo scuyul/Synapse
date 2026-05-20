@@ -112,6 +112,10 @@ class ReefscapeEnvConfig:
     randomize_other_robot_start: bool = False
     randomize_other_robot_behavior: bool = False
     other_robot_manual_control: bool = False
+    freeze_speed_threshold_mps: float = 0.08
+    freeze_objective_distance_m: float = 0.45
+    freeze_grace_s: float = 0.6
+    freeze_penalty_per_s: float = -3.0
 
 
 @dataclass(slots=True)
@@ -144,6 +148,7 @@ class ReefscapeState:
     hard_hit_other_robot: bool
     other_robot_impact_speed_mps: float
     other_robot_distance_m: float
+    frozen_time_s: float
 
 
 class ReefscapeEnv:
@@ -198,6 +203,7 @@ class ReefscapeEnv:
             hard_hit_other_robot=False,
             other_robot_impact_speed_mps=0.0,
             other_robot_distance_m=pose.distance_to(other_robot_pose),
+            frozen_time_s=0.0,
         )
         self._randomize_other_robot_behavior()
         self.state.last_objective_distance = self._objective_distance()
@@ -284,6 +290,7 @@ class ReefscapeEnv:
             prev_objective_distance - objective_distance
         )
         reward += self._settle_reward(objective_distance)
+        reward += self._freeze_penalty(objective_distance, mechanism_active)
 
         if not mechanism_active:
             state.intake_progress_s = 0.0
@@ -443,6 +450,7 @@ class ReefscapeEnv:
             "other_robot_hard_hits": state.other_robot_hard_hits,
             "other_robot_path_variant": state.other_robot_path_variant,
             "other_robot_speed_scale": state.other_robot_speed_scale,
+            "frozen_time_s": state.frozen_time_s,
         }
 
     def _build_goal_poses(self) -> list[Pose2d]:
@@ -504,6 +512,25 @@ class ReefscapeEnv:
         state = self._require_state()
         speed = math.hypot(state.vx_mps, state.vy_mps)
         return 0.05 * (0.45 - objective_distance) - 0.03 * speed
+
+    def _freeze_penalty(self, objective_distance: float, mechanism_active: bool) -> float:
+        state = self._require_state()
+        speed = math.hypot(state.vx_mps, state.vy_mps)
+        is_freezing = (
+            not mechanism_active
+            and objective_distance >= self.config.freeze_objective_distance_m
+            and speed <= self.config.freeze_speed_threshold_mps
+            and abs(state.omega_radps) <= 0.25
+        )
+        if not is_freezing:
+            state.frozen_time_s = 0.0
+            return 0.0
+
+        state.frozen_time_s += self.config.dt_s
+        excess_s = max(0.0, state.frozen_time_s - self.config.freeze_grace_s)
+        if excess_s <= 0.0:
+            return 0.0
+        return self.config.freeze_penalty_per_s * self.config.dt_s * (1.0 + 2.0 * excess_s)
 
     def _initial_other_robot_pose(self, robot_pose: Pose2d) -> tuple[Pose2d, int]:
         path = self._other_robot_path()
