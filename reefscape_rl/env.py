@@ -30,14 +30,20 @@ from reefscape_rl.constants import (
     FIELD_LENGTH_M,
     FIELD_WIDTH_M,
     INTAKE_RADIUS_M,
+    INTAKE_DURATION_S,
     MATCH_DURATION_S,
     MAX_ANGULAR_ACCEL_RADPS2,
     MAX_ANGULAR_SPEED_RADPS,
     MAX_LINEAR_ACCEL_MPS2,
     MAX_LINEAR_SPEED_MPS,
+    MECHANISM_ANGULAR_SETTLE_RADPS,
+    MECHANISM_LINEAR_SETTLE_MPS,
+    REEF_CLEARANCE_M,
+    REEF_OBSTACLE_RADIUS_M,
     REEF_SCORING_RADIUS_M,
     ROBOT_RADIUS_M,
     SCORE_HEADING_TOLERANCE_RAD,
+    SCORE_DURATION_S,
     SCORE_RADIUS_M,
     SCORING_POINTS_TELEOP,
 )
@@ -78,6 +84,10 @@ class ReefscapeEnvConfig:
     acquire_reward: float = 1.0
     invalid_action_penalty: float = -0.03
     boundary_penalty: float = -0.4
+    reef_collision_penalty: float = -0.8
+    hold_action_reward: float = 0.03
+    intake_duration_s: float = INTAKE_DURATION_S
+    score_duration_s: float = SCORE_DURATION_S
 
 
 @dataclass(slots=True)
@@ -93,6 +103,10 @@ class ReefscapeState:
     current_source_index: int
     current_goal_index: int
     last_objective_distance: float | None
+    intake_progress_s: float
+    score_progress_s: float
+    is_intaking: bool
+    is_scoring: bool
 
 
 class ReefscapeEnv:
@@ -128,6 +142,10 @@ class ReefscapeEnv:
             current_source_index=source_index,
             current_goal_index=goal_index,
             last_objective_distance=None,
+            intake_progress_s=0.0,
+            score_progress_s=0.0,
+            is_intaking=False,
+            is_scoring=False,
         )
         self.state.last_objective_distance = self._objective_distance()
         return self._observation(), self._info(event_code=0)
@@ -148,36 +166,61 @@ class ReefscapeEnv:
         reward = self.config.timestep_penalty
         event_code = 0
         scored_points = 0
+        state.is_intaking = False
+        state.is_scoring = False
 
         prev_objective_distance = self._objective_distance()
-        self._integrate(action_vx, action_vy, action_omega)
-        reward += self._clamp_to_field()
+        mechanism_active = False
 
-        objective_distance = self._objective_distance()
-        reward += self.config.progress_reward_scale * (
-            prev_objective_distance - objective_distance
-        )
-
-        if not state.has_coral:
-            if wants_intake and self._distance_to_source() <= INTAKE_RADIUS_M:
+        if not state.has_coral and wants_intake and self._can_intake():
+            self._hold_still()
+            state.is_intaking = True
+            state.score_progress_s = 0.0
+            state.intake_progress_s += self.config.dt_s
+            reward += self.config.hold_action_reward
+            event_code = 3
+            mechanism_active = True
+            if state.intake_progress_s >= self.config.intake_duration_s:
                 state.has_coral = True
+                state.intake_progress_s = 0.0
                 reward += self.config.acquire_reward
                 event_code = 1
-            elif wants_score:
-                reward += self.config.invalid_action_penalty
-        else:
-            if wants_score and self._can_score():
+        elif state.has_coral and wants_score and self._can_score():
+            self._hold_still()
+            state.is_scoring = True
+            state.intake_progress_s = 0.0
+            state.score_progress_s += self.config.dt_s
+            reward += self.config.hold_action_reward
+            event_code = 4
+            mechanism_active = True
+            if state.score_progress_s >= self.config.score_duration_s:
                 state.has_coral = False
+                state.score_progress_s = 0.0
                 state.scored_coral += 1
                 scored_points = SCORING_POINTS_TELEOP[self.config.target_level]
                 reward += float(scored_points)
                 event_code = 2
                 state.current_source_index = self._nearest_source_index(state.pose)
                 state.current_goal_index = self._next_goal_index()
-            elif wants_intake:
+        else:
+            if wants_intake and state.has_coral:
                 reward += self.config.invalid_action_penalty
-            elif wants_score:
+            if wants_score and not state.has_coral:
                 reward += self.config.invalid_action_penalty
+
+        if not mechanism_active:
+            self._integrate(action_vx, action_vy, action_omega)
+            reward += self._clamp_to_field()
+            reward += self._keep_out_of_reef()
+
+        objective_distance = self._objective_distance()
+        reward += self.config.progress_reward_scale * (
+            prev_objective_distance - objective_distance
+        )
+
+        if not mechanism_active:
+            state.intake_progress_s = 0.0
+            state.score_progress_s = 0.0
 
         state.time_s += self.config.dt_s
         state.total_reward += reward
@@ -296,6 +339,12 @@ class ReefscapeEnv:
             "goal_pose": goal_pose,
             "target_level": self.config.target_level,
             "objective_distance_m": self._objective_distance(),
+            "intake_progress_s": state.intake_progress_s,
+            "score_progress_s": state.score_progress_s,
+            "is_intaking": state.is_intaking,
+            "is_scoring": state.is_scoring,
+            "intake_duration_s": self.config.intake_duration_s,
+            "score_duration_s": self.config.score_duration_s,
         }
 
     def _build_goal_poses(self) -> list[Pose2d]:
@@ -331,7 +380,46 @@ class ReefscapeEnv:
         distance_ok = state.pose.distance_to(goal) <= SCORE_RADIUS_M
         heading_error = abs(normalize_angle(goal.heading - state.pose.heading))
         heading_ok = heading_error <= SCORE_HEADING_TOLERANCE_RAD
-        return distance_ok and heading_ok
+        return distance_ok and heading_ok and self._is_settled()
+
+    def _can_intake(self) -> bool:
+        return self._distance_to_source() <= INTAKE_RADIUS_M and self._is_settled()
+
+    def _is_settled(self) -> bool:
+        state = self._require_state()
+        linear_speed = math.hypot(state.vx_mps, state.vy_mps)
+        return (
+            linear_speed <= MECHANISM_LINEAR_SETTLE_MPS
+            and abs(state.omega_radps) <= MECHANISM_ANGULAR_SETTLE_RADPS
+        )
+
+    def _hold_still(self) -> None:
+        state = self._require_state()
+        state.vx_mps = 0.0
+        state.vy_mps = 0.0
+        state.omega_radps = 0.0
+
+    def _keep_out_of_reef(self) -> float:
+        state = self._require_state()
+        center_x, center_y = BLUE_REEF_CENTER
+        dx = state.pose.x - center_x
+        dy = state.pose.y - center_y
+        distance = math.hypot(dx, dy)
+        min_distance = REEF_OBSTACLE_RADIUS_M + ROBOT_RADIUS_M + REEF_CLEARANCE_M
+        if distance >= min_distance:
+            return 0.0
+
+        if distance < 1e-6:
+            dx = 1.0
+            dy = 0.0
+            distance = 1.0
+
+        scale = min_distance / distance
+        state.pose.x = center_x + dx * scale
+        state.pose.y = center_y + dy * scale
+        state.vx_mps = 0.0
+        state.vy_mps = 0.0
+        return self.config.reef_collision_penalty
 
     def _require_state(self) -> ReefscapeState:
         if self.state is None:

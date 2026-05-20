@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from reefscape_rl.constants import BLUE_CORAL_STATIONS
+from reefscape_rl.constants import BLUE_CORAL_STATIONS, BLUE_REEF_CENTER
 from reefscape_rl.env import OBSERVATION_FIELDS, ReefscapeEnv, ReefscapeEnvConfig
 from reefscape_rl.geometry import Pose2d
 
@@ -26,6 +26,14 @@ class ReefscapeEnvTests(unittest.TestCase):
         _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 1.0, 0.0])
 
         self.assertGreater(reward, 0.0)
+        self.assertFalse(info["has_coral"])
+        self.assertEqual(info["event_code"], 3)
+
+        for _ in range(20):
+            _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 1.0, 0.0])
+            if info["has_coral"]:
+                break
+
         self.assertTrue(info["has_coral"])
         self.assertEqual(info["event_code"], 1)
 
@@ -38,10 +46,29 @@ class ReefscapeEnvTests(unittest.TestCase):
 
         _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 1.0])
 
-        self.assertGreaterEqual(reward, 4.0)
+        self.assertLess(reward, 1.0)
+        self.assertTrue(info["has_coral"])
+        self.assertEqual(info["event_code"], 4)
+
+        for _ in range(20):
+            _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 1.0])
+            if not info["has_coral"]:
+                break
+
+        self.assertEqual(info["scored_points"], 5)
         self.assertFalse(info["has_coral"])
         self.assertEqual(info["scored_coral"], 1)
         self.assertEqual(info["event_code"], 2)
+
+    def test_robot_is_pushed_out_of_reef_keepout(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+        env.state.pose = Pose2d(BLUE_REEF_CENTER[0], BLUE_REEF_CENTER[1], 0.0)
+
+        _, reward, _, _, _ = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+
+        self.assertLess(reward, 0.0)
+        self.assertGreater(env.state.pose.distance_to(BLUE_REEF_CENTER), 1.5)
 
 
 if __name__ == "__main__":

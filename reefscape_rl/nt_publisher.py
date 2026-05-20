@@ -27,6 +27,14 @@ class AdvantageScopeNtPublisher:
     total_reward_pub: object
     has_coral_pub: object
     scored_coral_pub: object
+    intake_progress_pub: object
+    score_progress_pub: object
+    is_intaking_pub: object
+    is_scoring_pub: object
+    intake_duration_pub: object
+    score_duration_pub: object
+    intake_duration_sub: object
+    score_duration_sub: object
 
     @classmethod
     def start_server(cls, *, port: int = 5810) -> "AdvantageScopeNtPublisher":
@@ -39,6 +47,13 @@ class AdvantageScopeNtPublisher:
         inst = NetworkTableInstance.getDefault()
         inst.stopServer()
         inst.startServer(port4=port)
+
+        intake_duration_topic = inst.getDoubleTopic("/Tuning/IntakeDurationS")
+        score_duration_topic = inst.getDoubleTopic("/Tuning/ScoreDurationS")
+        intake_duration_pub = intake_duration_topic.publish()
+        score_duration_pub = score_duration_topic.publish()
+        intake_duration_pub.set(0.25)
+        score_duration_pub.set(0.25)
 
         return cls(
             inst=inst,
@@ -55,7 +70,21 @@ class AdvantageScopeNtPublisher:
             total_reward_pub=inst.getDoubleTopic("/RL/TotalReward").publish(),
             has_coral_pub=inst.getBooleanTopic("/Sim/HasCoral").publish(),
             scored_coral_pub=inst.getIntegerTopic("/Sim/ScoredCoral").publish(),
+            intake_progress_pub=inst.getDoubleTopic("/Sim/IntakeProgress").publish(),
+            score_progress_pub=inst.getDoubleTopic("/Sim/ScoreProgress").publish(),
+            is_intaking_pub=inst.getBooleanTopic("/Sim/IsIntaking").publish(),
+            is_scoring_pub=inst.getBooleanTopic("/Sim/IsScoring").publish(),
+            intake_duration_pub=intake_duration_pub,
+            score_duration_pub=score_duration_pub,
+            intake_duration_sub=intake_duration_topic.subscribe(0.25),
+            score_duration_sub=score_duration_topic.subscribe(0.25),
         )
+
+    def apply_tunables(self, env: ReefscapeEnv) -> None:
+        env.config.intake_duration_s = _clamp_duration(self.intake_duration_sub.get())
+        env.config.score_duration_s = _clamp_duration(self.score_duration_sub.get())
+        self.intake_duration_pub.set(env.config.intake_duration_s)
+        self.score_duration_pub.set(env.config.score_duration_s)
 
     def publish(self, env: ReefscapeEnv, *, reward: float = 0.0) -> None:
         state = env.state
@@ -71,6 +100,10 @@ class AdvantageScopeNtPublisher:
         self.total_reward_pub.set(float(state.total_reward))
         self.has_coral_pub.set(bool(state.has_coral))
         self.scored_coral_pub.set(int(state.scored_coral))
+        self.intake_progress_pub.set(float(state.intake_progress_s))
+        self.score_progress_pub.set(float(state.score_progress_s))
+        self.is_intaking_pub.set(bool(state.is_intaking))
+        self.is_scoring_pub.set(bool(state.is_scoring))
         self.inst.flush()
 
 
@@ -82,3 +115,7 @@ def _to_wpilib_pose(pose: SimPose2d):
 
 def _to_wpilib_poses(poses: Sequence[SimPose2d]):
     return [_to_wpilib_pose(pose) for pose in poses]
+
+
+def _clamp_duration(value: float) -> float:
+    return max(0.05, min(5.0, float(value)))

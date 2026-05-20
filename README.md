@@ -53,6 +53,8 @@ Then in AdvantageScope:
 3. Add `/AdvantageScope/RobotPose` as the robot pose.
 4. Add `/AdvantageScope/CoralPose`, `/AdvantageScope/GoalPose`, and `/AdvantageScope/ObjectivePose` as object poses.
 5. Optionally add `/AdvantageScope/ReefScoringPoses` as a pose array/object set.
+6. Plot `/Sim/IsIntaking`, `/Sim/IsScoring`, `/Sim/IntakeProgress`, `/Sim/ScoreProgress`, `/Sim/HasCoral`, and `/Sim/ScoredCoral` to see pickup/placement timing.
+7. Tune `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS` live in NetworkTables. Both default to `0.25`.
 
 The CSV logger still exists for quick plots/debugging outside AdvantageScope:
 

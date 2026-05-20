@@ -52,6 +52,7 @@ def main() -> int:
             env.reset(seed=args.seed + episode)
             publisher.publish(env)
             while True:
+                publisher.apply_tunables(env)
                 action = policy(env)
                 _, reward, terminated, truncated, _ = env.step(action)
                 publisher.publish(env, reward=reward)

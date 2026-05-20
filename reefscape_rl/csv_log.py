@@ -33,6 +33,12 @@ CSV_COLUMNS = (
     "/RL/TotalReward",
     "/RL/EventCode",
     "/RL/ObjectiveDistance",
+    "/Sim/IntakeProgress",
+    "/Sim/ScoreProgress",
+    "/Sim/IsIntaking",
+    "/Sim/IsScoring",
+    "/Tuning/IntakeDurationS",
+    "/Tuning/ScoreDurationS",
 )
 
 
@@ -91,6 +97,12 @@ class AdvantageScopeCsvLogger:
                 "/RL/TotalReward": f"{info['total_reward']:.6f}",
                 "/RL/EventCode": info["event_code"],
                 "/RL/ObjectiveDistance": f"{info['objective_distance_m']:.6f}",
+                "/Sim/IntakeProgress": f"{info['intake_progress_s']:.6f}",
+                "/Sim/ScoreProgress": f"{info['score_progress_s']:.6f}",
+                "/Sim/IsIntaking": "true" if info["is_intaking"] else "false",
+                "/Sim/IsScoring": "true" if info["is_scoring"] else "false",
+                "/Tuning/IntakeDurationS": f"{info['intake_duration_s']:.6f}",
+                "/Tuning/ScoreDurationS": f"{info['score_duration_s']:.6f}",
             }
         )
 
