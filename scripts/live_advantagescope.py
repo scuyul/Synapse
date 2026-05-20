@@ -43,6 +43,7 @@ def main() -> int:
     print(f"NetworkTables server started on 127.0.0.1:{args.port}")
     print("In AdvantageScope: connect to NetworkTables at 127.0.0.1.")
     print("Open 2D Field and add /AdvantageScope/RobotPose as a robot pose.")
+    print("Add /AdvantageScope/OtherRobotPose as another robot/object pose.")
     print("Add /AdvantageScope/CoralPose and /AdvantageScope/GoalPose as object poses.")
     print("Press Ctrl+C to stop.")
 

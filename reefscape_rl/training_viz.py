@@ -28,7 +28,7 @@ class AdvantageScopeTrainingCallback(BaseCallback):
         self.config = config
         self.publisher: AdvantageScopeNtPublisher | None = None
         self.preview_env = ReefscapeEnv(
-            ReefscapeEnvConfig(randomize_start=False, auto_mechanisms=True)
+            ReefscapeEnvConfig(randomize_start=False, auto_mechanisms=False)
         )
         self.action_adapter = ResidualHeuristicActionAdapter()
         self.preview_obs: np.ndarray | None = None

@@ -19,6 +19,7 @@ class AdvantageScopeNtPublisher:
 
     inst: object
     robot_pose_pub: object
+    other_robot_pose_pub: object
     coral_pose_pub: object
     goal_pose_pub: object
     objective_pose_pub: object
@@ -31,6 +32,12 @@ class AdvantageScopeNtPublisher:
     score_progress_pub: object
     is_intaking_pub: object
     is_scoring_pub: object
+    other_robot_distance_pub: object
+    hit_other_robot_pub: object
+    hard_hit_other_robot_pub: object
+    other_robot_hits_pub: object
+    other_robot_hard_hits_pub: object
+    other_robot_impact_speed_pub: object
     intake_duration_pub: object
     score_duration_pub: object
     intake_duration_sub: object
@@ -61,6 +68,9 @@ class AdvantageScopeNtPublisher:
         return cls(
             inst=inst,
             robot_pose_pub=inst.getStructTopic("/AdvantageScope/RobotPose", Pose2d).publish(),
+            other_robot_pose_pub=inst.getStructTopic(
+                "/AdvantageScope/OtherRobotPose", Pose2d
+            ).publish(),
             coral_pose_pub=inst.getStructTopic("/AdvantageScope/CoralPose", Pose2d).publish(),
             goal_pose_pub=inst.getStructTopic("/AdvantageScope/GoalPose", Pose2d).publish(),
             objective_pose_pub=inst.getStructTopic(
@@ -77,6 +87,20 @@ class AdvantageScopeNtPublisher:
             score_progress_pub=inst.getDoubleTopic("/Sim/ScoreProgress").publish(),
             is_intaking_pub=inst.getBooleanTopic("/Sim/IsIntaking").publish(),
             is_scoring_pub=inst.getBooleanTopic("/Sim/IsScoring").publish(),
+            other_robot_distance_pub=inst.getDoubleTopic(
+                "/Sim/OtherRobotDistance"
+            ).publish(),
+            hit_other_robot_pub=inst.getBooleanTopic("/Sim/HitOtherRobot").publish(),
+            hard_hit_other_robot_pub=inst.getBooleanTopic(
+                "/Sim/HardHitOtherRobot"
+            ).publish(),
+            other_robot_hits_pub=inst.getIntegerTopic("/Sim/OtherRobotHits").publish(),
+            other_robot_hard_hits_pub=inst.getIntegerTopic(
+                "/Sim/OtherRobotHardHits"
+            ).publish(),
+            other_robot_impact_speed_pub=inst.getDoubleTopic(
+                "/Sim/OtherRobotImpactSpeed"
+            ).publish(),
             intake_duration_pub=intake_duration_pub,
             score_duration_pub=score_duration_pub,
             intake_duration_sub=intake_duration_topic.subscribe(0.25),
@@ -98,6 +122,7 @@ class AdvantageScopeNtPublisher:
             raise RuntimeError("Cannot publish before env.reset().")
 
         self.robot_pose_pub.set(_to_wpilib_pose(state.pose))
+        self.other_robot_pose_pub.set(_to_wpilib_pose(state.other_robot_pose))
         self.coral_pose_pub.set(_to_wpilib_pose(env.current_coral_pose()))
         self.goal_pose_pub.set(_to_wpilib_pose(env.current_goal_pose()))
         self.objective_pose_pub.set(_to_wpilib_pose(env.current_objective_pose()))
@@ -110,6 +135,12 @@ class AdvantageScopeNtPublisher:
         self.score_progress_pub.set(float(state.score_progress_s))
         self.is_intaking_pub.set(bool(state.is_intaking))
         self.is_scoring_pub.set(bool(state.is_scoring))
+        self.other_robot_distance_pub.set(float(state.other_robot_distance_m))
+        self.hit_other_robot_pub.set(bool(state.hit_other_robot))
+        self.hard_hit_other_robot_pub.set(bool(state.hard_hit_other_robot))
+        self.other_robot_hits_pub.set(int(state.other_robot_hits))
+        self.other_robot_hard_hits_pub.set(int(state.other_robot_hard_hits))
+        self.other_robot_impact_speed_pub.set(float(state.other_robot_impact_speed_mps))
         self.inst.flush()
 
     def publish_training(

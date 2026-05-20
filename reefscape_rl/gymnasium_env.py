@@ -20,7 +20,7 @@ class GymnasiumReefscapeEnv(gym.Env):
 
     def __init__(self, config: ReefscapeEnvConfig | None = None, residual_heuristic: bool = True):
         super().__init__()
-        self.env = ReefscapeEnv(config or ReefscapeEnvConfig(auto_mechanisms=True))
+        self.env = ReefscapeEnv(config or ReefscapeEnvConfig(auto_mechanisms=False))
         self.action_adapter = ResidualHeuristicActionAdapter() if residual_heuristic else None
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(5,), dtype=np.float32)
         self.observation_space = spaces.Box(

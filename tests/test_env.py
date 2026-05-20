@@ -70,6 +70,39 @@ class ReefscapeEnvTests(unittest.TestCase):
         self.assertLess(reward, 0.0)
         self.assertGreater(env.state.pose.distance_to(BLUE_REEF_CENTER), 1.5)
 
+    def test_other_robot_moves_and_is_observed(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        obs, _ = env.reset(seed=1)
+        start_x = env.state.other_robot_pose.x
+        start_y = env.state.other_robot_pose.y
+
+        obs, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+
+        self.assertEqual(len(obs), len(OBSERVATION_FIELDS))
+        self.assertNotEqual((env.state.other_robot_pose.x, env.state.other_robot_pose.y), (start_x, start_y))
+        self.assertIn("other_robot_distance_m", info)
+
+    def test_hitting_other_robot_is_penalized(self) -> None:
+        env = ReefscapeEnv(
+            ReefscapeEnvConfig(randomize_start=False, other_robot_speed_mps=0.0)
+        )
+        env.reset(seed=1)
+        env.state.pose = Pose2d(
+            env.state.other_robot_pose.x - 0.90,
+            env.state.other_robot_pose.y,
+            0.0,
+        )
+        env.state.vx_mps = 3.0
+
+        _, reward, _, _, info = env.step([1.0, 0.0, 0.0, 0.0, 0.0])
+
+        self.assertLess(reward, -1.0)
+        self.assertTrue(info["hit_other_robot"])
+        self.assertTrue(info["hard_hit_other_robot"])
+        self.assertEqual(info["other_robot_hits"], 1)
+        self.assertEqual(info["other_robot_hard_hits"], 1)
+        self.assertGreaterEqual(info["other_robot_impact_speed_mps"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

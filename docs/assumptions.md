@@ -11,7 +11,7 @@ This simulator is not a full official field simulator yet. It is a training scaf
 
 ## Simplifications
 
-- Only one blue-alliance robot is simulated.
+- One controlled blue-alliance robot and one moving traffic robot are simulated.
 - Coral stations are simplified as source points instead of full field assemblies.
 - Reef branches are approximated as 12 scoring poses around a circular reef center.
 - Coral acquisition and scoring use radius checks instead of mechanism geometry.
@@ -19,7 +19,8 @@ This simulator is not a full official field simulator yet. It is a training scaf
 - Coral placement takes `0.25 s` of continuous score action while aligned, in range, and settled.
 - Pickup and placement durations are tunable live through `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS`.
 - The reef is modeled as a circular keepout obstacle that pushes the robot out and applies a collision penalty.
-- Algae, processor, net, barge, cages, penalties, opponents, and exact protected-zone rules are not simulated yet.
+- The traffic robot follows a repeatable path on the blue side, appears in observations/telemetry, allows small low-speed taps, and applies penalties only on physical body contact.
+- Algae, processor, net, barge, cages, full foul logic, and exact protected-zone rules are not simulated yet.
 - AdvantageScope visualization uses live NT4 struct telemetry from `scripts/live_advantagescope.py`.
 - CSV logs are fallback/debug artifacts, not the main AdvantageScope visualization path.
 

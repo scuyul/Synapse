@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--fixed-start", action="store_true")
     parser.add_argument("--deterministic", action="store_true")
+    parser.add_argument("--auto-mechanisms", action="store_true")
     parser.add_argument("--manual-mechanisms", action="store_true")
     parser.add_argument("--raw-actions", action="store_true")
     return parser.parse_args()
@@ -50,7 +51,7 @@ def main() -> int:
     env = ReefscapeEnv(
         ReefscapeEnvConfig(
             randomize_start=not args.fixed_start,
-            auto_mechanisms=not args.manual_mechanisms,
+            auto_mechanisms=args.auto_mechanisms and not args.manual_mechanisms,
         )
     )
     action_adapter = None if args.raw_actions else ResidualHeuristicActionAdapter()
@@ -70,7 +71,7 @@ def main() -> int:
             while True:
                 publisher.apply_tunables(env)
                 action, _ = model.predict(
-                    np.asarray(obs, dtype=np.float32),
+                    _adapt_observation_for_model(model, obs),
                     deterministic=args.deterministic,
                 )
                 sim_action = action
@@ -97,6 +98,23 @@ def main() -> int:
         return 0
 
     return 0
+
+
+def _adapt_observation_for_model(model, obs) -> np.ndarray:
+    observation = np.asarray(obs, dtype=np.float32)
+    shape = getattr(getattr(model, "observation_space", None), "shape", None)
+    if not shape or len(shape) != 1:
+        return observation
+
+    expected_length = int(shape[0])
+    if observation.shape[0] == expected_length:
+        return observation
+    if observation.shape[0] > expected_length:
+        return observation[:expected_length]
+
+    padded = np.zeros(expected_length, dtype=np.float32)
+    padded[: observation.shape[0]] = observation
+    return padded
 
 
 if __name__ == "__main__":

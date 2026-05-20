@@ -21,6 +21,7 @@ import random
 from typing import Any, Sequence
 
 from reefscape_rl.constants import (
+    BLUE_SIDE_OTHER_ROBOT_PATH,
     BLUE_CORAL_STATIONS,
     BLUE_REEF_CENTER,
     CONTROL_PERIOD_S,
@@ -38,6 +39,9 @@ from reefscape_rl.constants import (
     MAX_LINEAR_SPEED_MPS,
     MECHANISM_ANGULAR_SETTLE_RADPS,
     MECHANISM_LINEAR_SETTLE_MPS,
+    OTHER_ROBOT_CLEARANCE_M,
+    OTHER_ROBOT_RADIUS_M,
+    OTHER_ROBOT_SPEED_MPS,
     REEF_CLEARANCE_M,
     REEF_OBSTACLE_RADIUS_M,
     REEF_SCORING_RADIUS_M,
@@ -69,6 +73,15 @@ OBSERVATION_FIELDS = (
     "objective_distance_norm",
     "time_remaining_norm",
     "scored_coral_norm",
+    "other_robot_x_norm",
+    "other_robot_y_norm",
+    "other_robot_heading_cos",
+    "other_robot_heading_sin",
+    "other_robot_vx_norm",
+    "other_robot_vy_norm",
+    "other_robot_dx_norm",
+    "other_robot_dy_norm",
+    "other_robot_distance_norm",
 )
 
 
@@ -90,6 +103,13 @@ class ReefscapeEnvConfig:
     intake_duration_s: float = INTAKE_DURATION_S
     score_duration_s: float = SCORE_DURATION_S
     auto_mechanisms: bool = False
+    other_robot_enabled: bool = True
+    other_robot_speed_mps: float = OTHER_ROBOT_SPEED_MPS
+    other_robot_clearance_m: float = OTHER_ROBOT_CLEARANCE_M
+    other_robot_tap_penalty: float = -0.15
+    other_robot_collision_penalty: float = -4.0
+    other_robot_hard_hit_speed_mps: float = 2.25
+    randomize_other_robot_start: bool = False
 
 
 @dataclass(slots=True)
@@ -109,6 +129,16 @@ class ReefscapeState:
     score_progress_s: float
     is_intaking: bool
     is_scoring: bool
+    other_robot_pose: Pose2d
+    other_robot_vx_mps: float
+    other_robot_vy_mps: float
+    other_robot_path_index: int
+    other_robot_hits: int
+    other_robot_hard_hits: int
+    hit_other_robot: bool
+    hard_hit_other_robot: bool
+    other_robot_impact_speed_mps: float
+    other_robot_distance_m: float
 
 
 class ReefscapeEnv:
@@ -131,6 +161,7 @@ class ReefscapeEnv:
 
         pose = self._initial_pose()
         source_index = self._nearest_source_index(pose)
+        other_robot_pose, other_robot_path_index = self._initial_other_robot_pose(pose)
         goal_index = self._rng.randrange(len(self.goal_poses))
         self.state = ReefscapeState(
             time_s=0.0,
@@ -148,6 +179,16 @@ class ReefscapeEnv:
             score_progress_s=0.0,
             is_intaking=False,
             is_scoring=False,
+            other_robot_pose=other_robot_pose,
+            other_robot_vx_mps=0.0,
+            other_robot_vy_mps=0.0,
+            other_robot_path_index=other_robot_path_index,
+            other_robot_hits=0,
+            other_robot_hard_hits=0,
+            hit_other_robot=False,
+            hard_hit_other_robot=False,
+            other_robot_impact_speed_mps=0.0,
+            other_robot_distance_m=pose.distance_to(other_robot_pose),
         )
         self.state.last_objective_distance = self._objective_distance()
         return self._observation(), self._info(event_code=0)
@@ -173,6 +214,9 @@ class ReefscapeEnv:
         scored_points = 0
         state.is_intaking = False
         state.is_scoring = False
+        state.hit_other_robot = False
+        state.hard_hit_other_robot = False
+        state.other_robot_impact_speed_mps = 0.0
 
         prev_objective_distance = self._objective_distance()
         mechanism_active = False
@@ -217,6 +261,13 @@ class ReefscapeEnv:
             self._integrate(action_vx, action_vy, action_omega)
             reward += self._clamp_to_field()
             reward += self._keep_out_of_reef()
+
+        self._move_other_robot()
+        reward += self._resolve_other_robot_contact()
+        if state.hard_hit_other_robot and event_code == 0:
+            event_code = 6
+        elif state.hit_other_robot and event_code == 0:
+            event_code = 5
 
         objective_distance = self._objective_distance()
         reward += self.config.progress_reward_scale * (
@@ -308,6 +359,8 @@ class ReefscapeEnv:
         objective = self.current_objective_pose()
         dx = objective.x - state.pose.x
         dy = objective.y - state.pose.y
+        other_dx = state.other_robot_pose.x - state.pose.x
+        other_dy = state.other_robot_pose.y - state.pose.y
         return [
             state.pose.x / FIELD_LENGTH_M,
             state.pose.y / FIELD_WIDTH_M,
@@ -327,6 +380,15 @@ class ReefscapeEnv:
             max(0.0, self.config.episode_duration_s - state.time_s)
             / self.config.episode_duration_s,
             state.scored_coral / max(1, self.config.max_coral_scored),
+            state.other_robot_pose.x / FIELD_LENGTH_M,
+            state.other_robot_pose.y / FIELD_WIDTH_M,
+            math.cos(state.other_robot_pose.heading),
+            math.sin(state.other_robot_pose.heading),
+            state.other_robot_vx_mps / MAX_LINEAR_SPEED_MPS,
+            state.other_robot_vy_mps / MAX_LINEAR_SPEED_MPS,
+            other_dx / FIELD_LENGTH_M,
+            other_dy / FIELD_WIDTH_M,
+            math.hypot(other_dx, other_dy) / FIELD_DIAGONAL_M,
         ]
 
     def _info(self, *, event_code: int, scored_points: int = 0) -> dict[str, Any]:
@@ -351,6 +413,15 @@ class ReefscapeEnv:
             "is_scoring": state.is_scoring,
             "intake_duration_s": self.config.intake_duration_s,
             "score_duration_s": self.config.score_duration_s,
+            "other_robot_pose": state.other_robot_pose,
+            "other_robot_vx_mps": state.other_robot_vx_mps,
+            "other_robot_vy_mps": state.other_robot_vy_mps,
+            "other_robot_distance_m": state.other_robot_distance_m,
+            "hit_other_robot": state.hit_other_robot,
+            "hard_hit_other_robot": state.hard_hit_other_robot,
+            "other_robot_impact_speed_mps": state.other_robot_impact_speed_mps,
+            "other_robot_hits": state.other_robot_hits,
+            "other_robot_hard_hits": state.other_robot_hard_hits,
         }
 
     def _build_goal_poses(self) -> list[Pose2d]:
@@ -386,10 +457,17 @@ class ReefscapeEnv:
         distance_ok = state.pose.distance_to(goal) <= SCORE_TRIGGER_RADIUS_M
         heading_error = abs(normalize_angle(goal.heading - state.pose.heading))
         heading_ok = heading_error <= SCORE_HEADING_TOLERANCE_RAD
-        return distance_ok and heading_ok and self._is_settled()
+        return (
+            distance_ok
+            and heading_ok
+            and self._is_settled()
+        )
 
     def _can_intake(self) -> bool:
-        return self._distance_to_source() <= INTAKE_RADIUS_M and self._is_settled()
+        return (
+            self._distance_to_source() <= INTAKE_RADIUS_M
+            and self._is_settled()
+        )
 
     def _is_settled(self) -> bool:
         state = self._require_state()
@@ -405,6 +483,65 @@ class ReefscapeEnv:
         state = self._require_state()
         speed = math.hypot(state.vx_mps, state.vy_mps)
         return 0.05 * (0.45 - objective_distance) - 0.03 * speed
+
+    def _initial_other_robot_pose(self, robot_pose: Pose2d) -> tuple[Pose2d, int]:
+        path = BLUE_SIDE_OTHER_ROBOT_PATH
+        start_index = (
+            self._rng.randrange(len(path)) if self.config.randomize_other_robot_start else 0
+        )
+        for offset in range(len(path)):
+            index = (start_index + offset) % len(path)
+            next_index = (index + 1) % len(path)
+            x, y = path[index]
+            next_x, next_y = path[next_index]
+            pose = Pose2d(x, y, angle_to(x, y, next_x, next_y))
+            if not self.config.other_robot_enabled:
+                return pose, next_index
+            min_spawn_distance = ROBOT_RADIUS_M + OTHER_ROBOT_RADIUS_M + self.config.other_robot_clearance_m
+            if robot_pose.distance_to(pose) >= min_spawn_distance:
+                return pose, next_index
+        x, y = path[start_index]
+        next_index = (start_index + 1) % len(path)
+        next_x, next_y = path[next_index]
+        return Pose2d(x, y, angle_to(x, y, next_x, next_y)), next_index
+
+    def _move_other_robot(self) -> None:
+        state = self._require_state()
+        if not self.config.other_robot_enabled:
+            state.other_robot_vx_mps = 0.0
+            state.other_robot_vy_mps = 0.0
+            state.other_robot_distance_m = state.pose.distance_to(state.other_robot_pose)
+            return
+
+        dt = self.config.dt_s
+        remaining = max(0.0, self.config.other_robot_speed_mps) * dt
+        old_x = state.other_robot_pose.x
+        old_y = state.other_robot_pose.y
+
+        while remaining > 1e-9:
+            target_x, target_y = BLUE_SIDE_OTHER_ROBOT_PATH[state.other_robot_path_index]
+            dx = target_x - state.other_robot_pose.x
+            dy = target_y - state.other_robot_pose.y
+            distance = math.hypot(dx, dy)
+            if distance <= 1e-9:
+                state.other_robot_path_index = (
+                    state.other_robot_path_index + 1
+                ) % len(BLUE_SIDE_OTHER_ROBOT_PATH)
+                continue
+
+            state.other_robot_pose.heading = math.atan2(dy, dx)
+            step = min(remaining, distance)
+            state.other_robot_pose.x += (dx / distance) * step
+            state.other_robot_pose.y += (dy / distance) * step
+            remaining -= step
+            if step >= distance - 1e-9:
+                state.other_robot_path_index = (
+                    state.other_robot_path_index + 1
+                ) % len(BLUE_SIDE_OTHER_ROBOT_PATH)
+
+        state.other_robot_vx_mps = (state.other_robot_pose.x - old_x) / dt
+        state.other_robot_vy_mps = (state.other_robot_pose.y - old_y) / dt
+        state.other_robot_distance_m = state.pose.distance_to(state.other_robot_pose)
 
     def _hold_still(self) -> None:
         state = self._require_state()
@@ -433,6 +570,69 @@ class ReefscapeEnv:
         state.vx_mps = 0.0
         state.vy_mps = 0.0
         return self.config.reef_collision_penalty
+
+    def _resolve_other_robot_contact(self) -> float:
+        state = self._require_state()
+        if not self.config.other_robot_enabled:
+            state.other_robot_distance_m = state.pose.distance_to(state.other_robot_pose)
+            return 0.0
+
+        dx = state.pose.x - state.other_robot_pose.x
+        dy = state.pose.y - state.other_robot_pose.y
+        distance = math.hypot(dx, dy)
+        hard_distance = ROBOT_RADIUS_M + OTHER_ROBOT_RADIUS_M
+        soft_distance = hard_distance + self.config.other_robot_clearance_m
+        state.other_robot_distance_m = distance
+        if distance >= soft_distance:
+            return 0.0
+
+        reward = 0.0
+        if distance >= hard_distance:
+            return reward
+
+        if distance < 1e-6:
+            dx = -state.other_robot_vx_mps
+            dy = -state.other_robot_vy_mps
+            distance = math.hypot(dx, dy)
+            if distance < 1e-6:
+                dx = -1.0
+                dy = 0.0
+                distance = 1.0
+
+        nx = dx / distance
+        ny = dy / distance
+        relative_vx = state.vx_mps - state.other_robot_vx_mps
+        relative_vy = state.vy_mps - state.other_robot_vy_mps
+        impact_speed = max(0.0, -(relative_vx * nx + relative_vy * ny))
+        state.pose.x = clamp(
+            state.other_robot_pose.x + nx * hard_distance,
+            ROBOT_RADIUS_M,
+            FIELD_LENGTH_M - ROBOT_RADIUS_M,
+        )
+        state.pose.y = clamp(
+            state.other_robot_pose.y + ny * hard_distance,
+            ROBOT_RADIUS_M,
+            FIELD_WIDTH_M - ROBOT_RADIUS_M,
+        )
+        state.hit_other_robot = True
+        state.other_robot_hits += 1
+        state.other_robot_impact_speed_mps = impact_speed
+        reward += self.config.other_robot_tap_penalty
+        if impact_speed >= self.config.other_robot_hard_hit_speed_mps:
+            state.hard_hit_other_robot = True
+            state.other_robot_hard_hits += 1
+            reward += self.config.other_robot_collision_penalty
+            state.vx_mps = 0.0
+            state.vy_mps = 0.0
+        else:
+            inward_speed = state.vx_mps * nx + state.vy_mps * ny
+            if inward_speed < 0.0:
+                state.vx_mps -= inward_speed * nx
+                state.vy_mps -= inward_speed * ny
+            state.vx_mps *= 0.65
+            state.vy_mps *= 0.65
+        state.other_robot_distance_m = state.pose.distance_to(state.other_robot_pose)
+        return reward
 
     def _require_state(self) -> ReefscapeState:
         if self.state is None:

@@ -151,6 +151,7 @@ def run_trained_model(*, smoke: bool = False) -> None:
     loop = prompt_bool("Loop episodes", not smoke)
     fixed_start = prompt_bool("Fixed start", True)
     deterministic = prompt_bool("Deterministic actions", False)
+    auto_mechanisms = prompt_bool("Auto-run mechanisms", False)
 
     cmd = [
         PYTHON,
@@ -172,6 +173,8 @@ def run_trained_model(*, smoke: bool = False) -> None:
         cmd.append("--fixed-start")
     if deterministic:
         cmd.append("--deterministic")
+    if auto_mechanisms:
+        cmd.append("--auto-mechanisms")
     run_command(cmd)
 
 

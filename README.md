@@ -4,11 +4,11 @@ This is the first MVP for training an RL policy to drive a robot in a simplified
 
 The current simulator is intentionally small:
 
-- One blue-alliance robot on a 2D field.
+- One controlled blue-alliance robot plus one moving traffic robot on the blue side.
 - Coral-only cycling between coral stations and the reef.
 - Continuous action commands: field-relative `vx`, `vy`, `omega`, intake command, score command.
-- Filtered observations: robot pose/velocity, held-coral state, coral/source pose, goal pose, time remaining, and score count.
-- Reward shaping for progress, acquisition, scoring, and illegal/out-of-bounds behavior.
+- Filtered observations: robot pose/velocity, held-coral state, coral/source pose, goal pose, moving robot pose/velocity, time remaining, and score count.
+- Reward shaping for progress, acquisition, scoring, illegal/out-of-bounds behavior, reef collisions, low-speed taps, and hard robot-to-robot impacts.
 - live NetworkTables telemetry for AdvantageScope 2D Field visualization.
 - CSV logs for fallback debugging outside AdvantageScope.
 
@@ -40,13 +40,15 @@ python .\scripts\train_ppo.py --timesteps 100000 --device auto --n-envs 8
 
 Training streams a live preview rollout to AdvantageScope by default. While training runs, connect AdvantageScope to NetworkTables at `127.0.0.1` and watch the same `/AdvantageScope/*`, `/Sim/*`, and `/RL/*` topics. Use `--no-advantagescope` to disable this.
 
-New models train as residual controllers on top of the working heuristic pathing driver. The RL policy learns corrections, while the baseline prevents jitter and keeps the robot moving toward valid targets. The training environment also auto-runs intake/score once the robot is settled at the correct place. Use `--raw-actions` when running a model only if you intentionally trained a fully raw policy.
+New models train as residual controllers on top of the working heuristic pathing driver. The RL policy learns corrections, while the baseline prevents jitter and keeps the robot moving toward valid targets. The moving traffic robot only affects reward/physics on body contact, so the policy can choose close passes instead of taking large detours. Intake/score commands come from the policy wrapper by default; use `--auto-mechanisms` only for experiments where you want the environment to trigger mechanisms automatically. Use `--raw-actions` when running a model only if you intentionally trained a fully raw policy.
 
 Run a saved trained model:
 
 ```powershell
 python .\scripts\run_trained_model.py --model .\models\reefscape_ppo.zip --fixed-start --loop
 ```
+
+Models trained before the moving traffic robot was added can still replay through the compatibility adapter, but they did not learn the new obstacle observations. Retrain for real collision avoidance behavior.
 
 Training saves rotating checkpoints in `models/checkpoints` by default and keeps the latest two. If you press Ctrl+C during training, it saves `models/reefscape_ppo_interrupted.zip`.
 
@@ -75,9 +77,9 @@ Then in AdvantageScope:
 1. Connect to NetworkTables at `127.0.0.1`.
 2. Open the `2D Field` tab.
 3. Add `/AdvantageScope/RobotPose` as the robot pose.
-4. Add `/AdvantageScope/CoralPose`, `/AdvantageScope/GoalPose`, and `/AdvantageScope/ObjectivePose` as object poses.
+4. Add `/AdvantageScope/OtherRobotPose`, `/AdvantageScope/CoralPose`, `/AdvantageScope/GoalPose`, and `/AdvantageScope/ObjectivePose` as object poses.
 5. Optionally add `/AdvantageScope/ReefScoringPoses` as a pose array/object set.
-6. Plot `/Sim/IsIntaking`, `/Sim/IsScoring`, `/Sim/IntakeProgress`, `/Sim/ScoreProgress`, `/Sim/HasCoral`, and `/Sim/ScoredCoral` to see pickup/placement timing.
+6. Plot `/Sim/IsIntaking`, `/Sim/IsScoring`, `/Sim/IntakeProgress`, `/Sim/ScoreProgress`, `/Sim/HasCoral`, `/Sim/ScoredCoral`, `/Sim/OtherRobotDistance`, `/Sim/HitOtherRobot`, `/Sim/HardHitOtherRobot`, `/Sim/OtherRobotHits`, `/Sim/OtherRobotHardHits`, and `/Sim/OtherRobotImpactSpeed` to see pickup/placement timing and collision severity.
 7. Tune `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS` live in NetworkTables. Both default to `0.25`.
 8. During RL training, plot `/RL/TrainingStep`, `/RL/PreviewEpisodeReturn`, and `/RL/PreviewEpisode`.
 
@@ -90,6 +92,8 @@ The CSV logger still exists for quick plots/debugging outside AdvantageScope:
 - `/Sim/CoralPose/y`
 - `/Sim/GoalPose/x`
 - `/Sim/GoalPose/y`
+- `/Sim/OtherRobotPose/x`
+- `/Sim/OtherRobotPose/y`
 - `/RL/Reward`
 - `/RL/TotalReward`
 - `/RL/Action/*`
@@ -98,6 +102,6 @@ The CSV logger still exists for quick plots/debugging outside AdvantageScope:
 
 1. Add a Gymnasium wrapper and Stable-Baselines3 PPO training script.
 2. Add WPILOG/NT4 structured telemetry for native AdvantageScope Field visualization.
-3. Add algae, processor/net scoring, branch occupancy, and optional opponent robots.
+3. Add algae, processor/net scoring, branch occupancy, and richer multi-robot traffic.
 4. Add domain randomization for sensor noise, latency, friction, and start poses.
 5. Add a policy safety wrapper that constrains outputs before deployment to robot code.
