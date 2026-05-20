@@ -14,6 +14,12 @@ The current simulator is intentionally small:
 
 ## Quick Start
 
+Use the interactive menu:
+
+```powershell
+python .\menu.py
+```
+
 Run a heuristic rollout and write a log:
 
 ```powershell
