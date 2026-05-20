@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--viz-every-steps", type=int, default=512)
     parser.add_argument("--viz-preview-steps", type=int, default=25)
     parser.add_argument(
+        "--fixed-defense",
+        action="store_true",
+        help="Disable randomized defense-bot path/speed/start during training.",
+    )
+    parser.add_argument(
         "--device",
         choices=("auto", "cuda", "cpu"),
         default="auto",
@@ -51,6 +56,7 @@ def main() -> int:
         from stable_baselines3 import PPO
         from stable_baselines3.common.callbacks import CallbackList
         from stable_baselines3.common.env_util import make_vec_env
+        from reefscape_rl.env import ReefscapeEnvConfig
         from reefscape_rl.gymnasium_env import GymnasiumReefscapeEnv
         from reefscape_rl.training_viz import (
             AdvantageScopeTrainingCallback,
@@ -80,7 +86,18 @@ def main() -> int:
     print(f"Using device: {device}")
     if device == "cuda":
         print(f"CUDA device: {torch.cuda.get_device_name(0)}")
-    env = make_vec_env(lambda: GymnasiumReefscapeEnv(), n_envs=args.n_envs)
+    def make_env():
+        return GymnasiumReefscapeEnv(
+            config=None
+            if not args.fixed_defense
+            else ReefscapeEnvConfig(
+                auto_mechanisms=False,
+                randomize_other_robot_start=False,
+                randomize_other_robot_behavior=False,
+            )
+        )
+
+    env = make_vec_env(make_env, n_envs=args.n_envs)
     if args.resume_from is not None:
         if not args.resume_from.exists():
             print(f"Resume model not found: {args.resume_from}")

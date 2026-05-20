@@ -57,6 +57,7 @@ def run_live_heuristic() -> None:
     speed = prompt_float("Playback speed", 1.0)
     loop = prompt_bool("Loop episodes", True)
     fixed_start = prompt_bool("Fixed start", True)
+    xbox_defense = prompt_bool("Drive defense robot with Xbox controller", False)
 
     cmd = [
         PYTHON,
@@ -74,6 +75,8 @@ def run_live_heuristic() -> None:
         cmd.append("--loop")
     if fixed_start:
         cmd.append("--fixed-start")
+    if xbox_defense:
+        cmd.append("--xbox-defense")
     run_command(cmd)
 
 
@@ -95,6 +98,7 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
     pretrain_samples = prompt_int("Heuristic pretrain samples", 50_000)
     pretrain_epochs = prompt_int("Heuristic pretrain epochs", 10)
     advantagescope = prompt_bool("Stream training preview to AdvantageScope", True)
+    varied_defense = prompt_bool("Randomize defense bot during training", True)
     port = prompt_int("AdvantageScope NT port", 5810)
     viz_every = prompt_int("Preview every N training steps", 64 if smoke else 512)
     viz_steps = prompt_int("Preview sim steps per update", 5 if smoke else 25)
@@ -139,6 +143,8 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
         cmd.append("--skip-heuristic-pretrain")
     if not advantagescope:
         cmd.append("--no-advantagescope")
+    if not varied_defense:
+        cmd.append("--fixed-defense")
     run_command(cmd)
 
 
@@ -152,6 +158,7 @@ def run_trained_model(*, smoke: bool = False) -> None:
     fixed_start = prompt_bool("Fixed start", True)
     deterministic = prompt_bool("Deterministic actions", False)
     auto_mechanisms = prompt_bool("Auto-run mechanisms", False)
+    xbox_defense = prompt_bool("Drive defense robot with Xbox controller", False)
 
     cmd = [
         PYTHON,
@@ -175,6 +182,8 @@ def run_trained_model(*, smoke: bool = False) -> None:
         cmd.append("--deterministic")
     if auto_mechanisms:
         cmd.append("--auto-mechanisms")
+    if xbox_defense:
+        cmd.append("--xbox-defense")
     run_command(cmd)
 
 

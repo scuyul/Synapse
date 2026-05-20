@@ -14,6 +14,7 @@ import numpy as np
 from reefscape_rl.action_adapter import ResidualHeuristicActionAdapter
 from reefscape_rl.env import ReefscapeEnv, ReefscapeEnvConfig
 from reefscape_rl.nt_publisher import AdvantageScopeNtPublisher
+from reefscape_rl.xbox_controller import XboxController
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +32,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--auto-mechanisms", action="store_true")
     parser.add_argument("--manual-mechanisms", action="store_true")
     parser.add_argument("--raw-actions", action="store_true")
+    parser.add_argument(
+        "--xbox-defense",
+        action="store_true",
+        help="Use the first Xbox controller to manually drive /AdvantageScope/OtherRobotPose.",
+    )
+    parser.add_argument("--xbox-deadband", type=float, default=0.08)
     return parser.parse_args()
 
 
@@ -52,10 +59,18 @@ def main() -> int:
         ReefscapeEnvConfig(
             randomize_start=not args.fixed_start,
             auto_mechanisms=args.auto_mechanisms and not args.manual_mechanisms,
+            other_robot_manual_control=args.xbox_defense,
         )
     )
     action_adapter = None if args.raw_actions else ResidualHeuristicActionAdapter()
     publisher = AdvantageScopeNtPublisher.start_server(port=args.port)
+    controller = None
+    if args.xbox_defense:
+        try:
+            controller = XboxController.open_first(deadband=args.xbox_deadband)
+        except RuntimeError as exc:
+            print(exc)
+            return 2
 
     print(f"Loaded model: {args.model}")
     print(f"NetworkTables server started on 127.0.0.1:{args.port}")
@@ -70,6 +85,8 @@ def main() -> int:
             publisher.publish(env)
             while True:
                 publisher.apply_tunables(env)
+                if controller is not None:
+                    env.set_other_robot_manual_command(*controller.command())
                 action, _ = model.predict(
                     _adapt_observation_for_model(model, obs),
                     deterministic=args.deterministic,
@@ -95,8 +112,12 @@ def main() -> int:
             episode += 1
     except KeyboardInterrupt:
         print("Stopped.")
+        if controller is not None:
+            controller.close()
         return 0
 
+    if controller is not None:
+        controller.close()
     return 0
 
 

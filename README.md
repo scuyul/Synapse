@@ -38,6 +38,8 @@ Train PPO after installing optional RL dependencies. The trainer defaults to `--
 python .\scripts\train_ppo.py --timesteps 100000 --device auto --n-envs 8
 ```
 
+Training randomizes the defense bot's start phase, direction, path variant, and speed by default so the policy is better prepared for Xbox-controlled defense. Use `--fixed-defense` only when you want the old repeatable defense path.
+
 Training streams a live preview rollout to AdvantageScope by default. While training runs, connect AdvantageScope to NetworkTables at `127.0.0.1` and watch the same `/AdvantageScope/*`, `/Sim/*`, and `/RL/*` topics. Use `--no-advantagescope` to disable this.
 
 New models train as residual controllers on top of the working heuristic pathing driver. The RL policy learns corrections, while the baseline prevents jitter and keeps the robot moving toward valid targets. The moving traffic robot only affects reward/physics on body contact, so the policy can choose close passes instead of taking large detours. Intake/score commands come from the policy wrapper by default; use `--auto-mechanisms` only for experiments where you want the environment to trigger mechanisms automatically. Use `--raw-actions` when running a model only if you intentionally trained a fully raw policy.
@@ -47,6 +49,14 @@ Run a saved trained model:
 ```powershell
 python .\scripts\run_trained_model.py --model .\models\reefscape_ppo.zip --fixed-start --loop
 ```
+
+To manually drive the defense robot with an Xbox controller, connect the controller first and opt in:
+
+```powershell
+python .\scripts\run_trained_model.py --model .\models\reefscape_ppo.zip --fixed-start --loop --xbox-defense
+```
+
+Left stick drives the defense robot field-relative. Right stick X rotates it. This is off by default.
 
 Models trained before the moving traffic robot was added can still replay through the compatibility adapter, but they did not learn the new obstacle observations. Retrain for real collision avoidance behavior.
 
