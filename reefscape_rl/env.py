@@ -116,6 +116,8 @@ class ReefscapeEnvConfig:
     freeze_objective_distance_m: float = 0.45
     freeze_grace_s: float = 0.6
     freeze_penalty_per_s: float = -3.0
+    smoothness_reward_scale: float = 0.025
+    jerk_penalty_scale: float = -0.035
 
 
 @dataclass(slots=True)
@@ -149,6 +151,10 @@ class ReefscapeState:
     other_robot_impact_speed_mps: float
     other_robot_distance_m: float
     frozen_time_s: float
+    last_action_vx: float
+    last_action_vy: float
+    last_action_omega: float
+    smoothness_reward: float
 
 
 class ReefscapeEnv:
@@ -204,6 +210,10 @@ class ReefscapeEnv:
             other_robot_impact_speed_mps=0.0,
             other_robot_distance_m=pose.distance_to(other_robot_pose),
             frozen_time_s=0.0,
+            last_action_vx=0.0,
+            last_action_vy=0.0,
+            last_action_omega=0.0,
+            smoothness_reward=0.0,
         )
         self._randomize_other_robot_behavior()
         self.state.last_objective_distance = self._objective_distance()
@@ -290,6 +300,13 @@ class ReefscapeEnv:
             prev_objective_distance - objective_distance
         )
         reward += self._settle_reward(objective_distance)
+        reward += self._smoothness_reward(
+            action_vx,
+            action_vy,
+            action_omega,
+            objective_distance,
+            mechanism_active,
+        )
         reward += self._freeze_penalty(objective_distance, mechanism_active)
 
         if not mechanism_active:
@@ -451,6 +468,7 @@ class ReefscapeEnv:
             "other_robot_path_variant": state.other_robot_path_variant,
             "other_robot_speed_scale": state.other_robot_speed_scale,
             "frozen_time_s": state.frozen_time_s,
+            "smoothness_reward": state.smoothness_reward,
         }
 
     def _build_goal_poses(self) -> list[Pose2d]:
@@ -531,6 +549,41 @@ class ReefscapeEnv:
         if excess_s <= 0.0:
             return 0.0
         return self.config.freeze_penalty_per_s * self.config.dt_s * (1.0 + 2.0 * excess_s)
+
+    def _smoothness_reward(
+        self,
+        action_vx: float,
+        action_vy: float,
+        action_omega: float,
+        objective_distance: float,
+        mechanism_active: bool,
+    ) -> float:
+        state = self._require_state()
+        if mechanism_active:
+            state.smoothness_reward = 0.0
+            state.last_action_vx = 0.0
+            state.last_action_vy = 0.0
+            state.last_action_omega = 0.0
+            return 0.0
+
+        delta_vx = action_vx - state.last_action_vx
+        delta_vy = action_vy - state.last_action_vy
+        delta_omega = action_omega - state.last_action_omega
+        jerk = math.sqrt(delta_vx * delta_vx + delta_vy * delta_vy + 0.35 * delta_omega * delta_omega)
+        speed = math.hypot(state.vx_mps, state.vy_mps)
+        moving_toward_objective = (
+            speed > self.config.freeze_speed_threshold_mps
+            and objective_distance > SCORE_TRIGGER_RADIUS_M
+        )
+        smooth_bonus = 0.0
+        if moving_toward_objective:
+            smooth_bonus = self.config.smoothness_reward_scale / (1.0 + 3.0 * jerk)
+        reward = smooth_bonus + self.config.jerk_penalty_scale * jerk
+        state.smoothness_reward = reward
+        state.last_action_vx = action_vx
+        state.last_action_vy = action_vy
+        state.last_action_omega = action_omega
+        return reward
 
     def _initial_other_robot_pose(self, robot_pose: Pose2d) -> tuple[Pose2d, int]:
         path = self._other_robot_path()

@@ -39,6 +39,7 @@ class AdvantageScopeNtPublisher:
     other_robot_hard_hits_pub: object
     other_robot_impact_speed_pub: object
     frozen_time_pub: object
+    smoothness_reward_pub: object
     intake_duration_pub: object
     score_duration_pub: object
     intake_duration_sub: object
@@ -103,6 +104,7 @@ class AdvantageScopeNtPublisher:
                 "/Sim/OtherRobotImpactSpeed"
             ).publish(),
             frozen_time_pub=inst.getDoubleTopic("/Sim/FrozenTime").publish(),
+            smoothness_reward_pub=inst.getDoubleTopic("/RL/SmoothnessReward").publish(),
             intake_duration_pub=intake_duration_pub,
             score_duration_pub=score_duration_pub,
             intake_duration_sub=intake_duration_topic.subscribe(0.25),
@@ -144,6 +146,7 @@ class AdvantageScopeNtPublisher:
         self.other_robot_hard_hits_pub.set(int(state.other_robot_hard_hits))
         self.other_robot_impact_speed_pub.set(float(state.other_robot_impact_speed_mps))
         self.frozen_time_pub.set(float(state.frozen_time_s))
+        self.smoothness_reward_pub.set(float(state.smoothness_reward))
         self.inst.flush()
 
     def publish_training(

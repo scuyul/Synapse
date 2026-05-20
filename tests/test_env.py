@@ -116,6 +116,23 @@ class ReefscapeEnvTests(unittest.TestCase):
         self.assertGreater(info["frozen_time_s"], env.config.freeze_grace_s)
         self.assertLess(rewards[-1], rewards[0])
 
+    def test_smooth_motion_has_better_reward_than_jerky_commands(self) -> None:
+        smooth_env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        jerky_env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        smooth_env.reset(seed=1)
+        jerky_env.reset(seed=1)
+
+        smooth_total = 0.0
+        jerky_total = 0.0
+        for index in range(8):
+            _, _, _, _, smooth_info = smooth_env.step([0.4, 0.0, 0.0, 0.0, 0.0])
+            jerky_action = [1.0 if index % 2 == 0 else -1.0, 0.0, 0.0, 0.0, 0.0]
+            _, _, _, _, jerky_info = jerky_env.step(jerky_action)
+            smooth_total += smooth_info["smoothness_reward"]
+            jerky_total += jerky_info["smoothness_reward"]
+
+        self.assertGreater(smooth_total, jerky_total)
+
 
 if __name__ == "__main__":
     unittest.main()
