@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import time
+
+from stable_baselines3.common.callbacks import BaseCallback
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -17,6 +20,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-steps", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--resume-from", type=Path, default=None)
+    parser.add_argument("--checkpoint-dir", type=Path, default=Path("models/checkpoints"))
+    parser.add_argument("--checkpoint-every-steps", type=int, default=10_000)
+    parser.add_argument("--keep-checkpoints", type=int, default=2)
     parser.add_argument("--no-advantagescope", action="store_true")
     parser.add_argument("--advantage-port", type=int, default=5810)
     parser.add_argument("--viz-every-steps", type=int, default=512)
@@ -34,6 +41,7 @@ def main() -> int:
     try:
         import torch
         from stable_baselines3 import PPO
+        from stable_baselines3.common.callbacks import CallbackList
         from stable_baselines3.common.env_util import make_vec_env
         from reefscape_rl.gymnasium_env import GymnasiumReefscapeEnv
         from reefscape_rl.training_viz import (
@@ -64,32 +72,102 @@ def main() -> int:
     if device == "cuda":
         print(f"CUDA device: {torch.cuda.get_device_name(0)}")
     env = make_vec_env(lambda: GymnasiumReefscapeEnv(), n_envs=args.n_envs)
-    model = PPO(
-        "MlpPolicy",
-        env,
-        verbose=1,
-        device=device,
-        n_steps=args.n_steps,
-        batch_size=batch_size,
-        learning_rate=args.learning_rate,
-        policy_kwargs={"net_arch": [256, 256]},
-    )
-    callback = None
+    if args.resume_from is not None:
+        if not args.resume_from.exists():
+            print(f"Resume model not found: {args.resume_from}")
+            return 2
+        model = PPO.load(args.resume_from, env=env, device=device)
+        print(f"Resumed model: {args.resume_from}")
+    else:
+        model = PPO(
+            "MlpPolicy",
+            env,
+            verbose=1,
+            device=device,
+            n_steps=args.n_steps,
+            batch_size=batch_size,
+            learning_rate=args.learning_rate,
+            policy_kwargs={"net_arch": [256, 256]},
+        )
+
+    callbacks: list[BaseCallback] = []
     if not args.no_advantagescope:
-        callback = AdvantageScopeTrainingCallback(
-            TrainingVisualizationConfig(
-                port=args.advantage_port,
-                every_steps=args.viz_every_steps,
-                preview_steps=args.viz_preview_steps,
+        callbacks.append(
+            AdvantageScopeTrainingCallback(
+                TrainingVisualizationConfig(
+                    port=args.advantage_port,
+                    every_steps=args.viz_every_steps,
+                    preview_steps=args.viz_preview_steps,
+                )
             )
         )
         print("Training visualization enabled for AdvantageScope.")
         print(f"Connect AdvantageScope to NetworkTables at 127.0.0.1:{args.advantage_port}")
 
-    model.learn(total_timesteps=args.timesteps, callback=callback)
+    if args.checkpoint_every_steps > 0:
+        callbacks.append(
+            RotatingCheckpointCallback(
+                checkpoint_dir=args.checkpoint_dir,
+                every_steps=args.checkpoint_every_steps,
+                keep=args.keep_checkpoints,
+            )
+        )
+
+    callback = CallbackList(callbacks) if callbacks else None
+    try:
+        model.learn(
+            total_timesteps=args.timesteps,
+            callback=callback,
+            reset_num_timesteps=args.resume_from is None,
+        )
+    except KeyboardInterrupt:
+        interrupt_path = args.model_out.with_name(f"{args.model_out.name}_interrupted")
+        model.save(interrupt_path)
+        print()
+        print(f"Training interrupted. Saved current model to {interrupt_path}.zip")
+        return 130
+
     model.save(args.model_out)
-    print(f"Wrote {args.model_out}")
+    print(f"Wrote {args.model_out}.zip")
     return 0
+
+
+class RotatingCheckpointCallback(BaseCallback):
+    def __init__(self, *, checkpoint_dir: Path, every_steps: int, keep: int):
+        super().__init__()
+        self.checkpoint_dir = checkpoint_dir
+        self.every_steps = every_steps
+        self.keep = max(1, keep)
+        self.saved: list[Path] = []
+
+    def _on_training_start(self) -> None:
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps <= 0 or self.num_timesteps % self.every_steps != 0:
+            return True
+        path = self.checkpoint_dir / f"reefscape_ppo_step_{self.num_timesteps}"
+        self.model.save(path)
+        zip_path = path.with_suffix(".zip")
+        self.saved.append(zip_path)
+        print(f"Checkpoint saved: {zip_path}")
+        while len(self.saved) > self.keep:
+            old = self.saved.pop(0)
+            _delete_checkpoint_if_possible(old)
+        return True
+
+
+def _delete_checkpoint_if_possible(path: Path) -> None:
+    if not path.exists():
+        return
+    for _ in range(3):
+        try:
+            path.unlink()
+            print(f"Deleted old checkpoint: {path}")
+            return
+        except PermissionError:
+            time.sleep(0.1)
+    print(f"Warning: could not delete old checkpoint because it is locked: {path}")
 
 
 if __name__ == "__main__":

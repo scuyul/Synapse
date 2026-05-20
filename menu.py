@@ -22,7 +22,8 @@ def main() -> int:
         print("6. Check CUDA / RTX 4060")
         print("7. Quick train smoke test")
         print("8. Quick trained-model smoke run")
-        print("9. Exit")
+        print("9. Resume PPO training from model/checkpoint")
+        print("10. Exit")
         choice = input("Select option: ").strip()
 
         if choice == "1":
@@ -42,6 +43,8 @@ def main() -> int:
         elif choice == "8":
             run_trained_model(smoke=True)
         elif choice == "9":
+            run_training(resume=True)
+        elif choice == "10":
             return 0
         else:
             print("Invalid option.")
@@ -74,14 +77,20 @@ def run_live_heuristic() -> None:
     run_command(cmd)
 
 
-def run_training(*, smoke: bool = False) -> None:
+def run_training(*, smoke: bool = False, resume: bool = False) -> None:
     timesteps = prompt_int("Training timesteps", 256 if smoke else 100_000)
     model_out = prompt_text("Model output path", "models/smoke_train_viz" if smoke else "models/reefscape_ppo")
+    resume_from = ""
+    if resume:
+        resume_from = prompt_text("Resume from model/checkpoint .zip", "models/reefscape_ppo_interrupted.zip")
     device = prompt_choice("Device", "cuda", {"auto", "cuda", "cpu"})
     n_envs = prompt_int("Parallel envs", 2 if smoke else 8)
     n_steps = prompt_int("PPO rollout steps per env", 64 if smoke else 512)
     batch_size = prompt_int("PPO batch size", 128 if smoke else 1024)
     learning_rate = prompt_float("Learning rate", 0.0003)
+    checkpoint_dir = prompt_text("Checkpoint directory", "models/checkpoints")
+    checkpoint_every = prompt_int("Checkpoint every N steps", 10_000)
+    keep_checkpoints = prompt_int("Keep latest N checkpoints", 2)
     advantagescope = prompt_bool("Stream training preview to AdvantageScope", True)
     port = prompt_int("AdvantageScope NT port", 5810)
     viz_every = prompt_int("Preview every N training steps", 64 if smoke else 512)
@@ -104,6 +113,12 @@ def run_training(*, smoke: bool = False) -> None:
         str(batch_size),
         "--learning-rate",
         str(learning_rate),
+        "--checkpoint-dir",
+        checkpoint_dir,
+        "--checkpoint-every-steps",
+        str(checkpoint_every),
+        "--keep-checkpoints",
+        str(keep_checkpoints),
         "--advantage-port",
         str(port),
         "--viz-every-steps",
@@ -111,6 +126,8 @@ def run_training(*, smoke: bool = False) -> None:
         "--viz-preview-steps",
         str(viz_steps),
     ]
+    if resume_from:
+        cmd.extend(["--resume-from", resume_from])
     if not advantagescope:
         cmd.append("--no-advantagescope")
     run_command(cmd)

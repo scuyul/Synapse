@@ -46,6 +46,14 @@ Run a saved trained model:
 python .\scripts\run_trained_model.py --model .\models\reefscape_ppo.zip --fixed-start --loop
 ```
 
+Training saves rotating checkpoints in `models/checkpoints` by default and keeps the latest two. If you press Ctrl+C during training, it saves `models/reefscape_ppo_interrupted.zip`.
+
+Resume training:
+
+```powershell
+python .\scripts\train_ppo.py --resume-from .\models\reefscape_ppo_interrupted.zip --timesteps 100000 --device cuda
+```
+
 For this machine, CUDA PyTorch is expected. Verify it with:
 
 ```powershell
