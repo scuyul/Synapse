@@ -125,28 +125,31 @@ class AdvantageScopeNtPublisher:
         if state is None:
             raise RuntimeError("Cannot publish before env.reset().")
 
-        self.robot_pose_pub.set(_to_wpilib_pose(state.pose))
-        self.other_robot_pose_pub.set(_to_wpilib_pose(state.other_robot_pose))
-        self.coral_pose_pub.set(_to_wpilib_pose(env.current_coral_pose()))
-        self.goal_pose_pub.set(_to_wpilib_pose(env.current_goal_pose()))
-        self.objective_pose_pub.set(_to_wpilib_pose(env.current_objective_pose()))
-        self.reef_pose_array_pub.set(_to_wpilib_poses(env.goal_poses))
-        self.reward_pub.set(float(reward))
-        self.total_reward_pub.set(float(state.total_reward))
-        self.has_coral_pub.set(bool(state.has_coral))
-        self.scored_coral_pub.set(int(state.scored_coral))
-        self.intake_progress_pub.set(float(state.intake_progress_s))
-        self.score_progress_pub.set(float(state.score_progress_s))
-        self.is_intaking_pub.set(bool(state.is_intaking))
-        self.is_scoring_pub.set(bool(state.is_scoring))
-        self.other_robot_distance_pub.set(float(state.other_robot_distance_m))
-        self.hit_other_robot_pub.set(bool(state.hit_other_robot))
-        self.hard_hit_other_robot_pub.set(bool(state.hard_hit_other_robot))
-        self.other_robot_hits_pub.set(int(state.other_robot_hits))
-        self.other_robot_hard_hits_pub.set(int(state.other_robot_hard_hits))
-        self.other_robot_impact_speed_pub.set(float(state.other_robot_impact_speed_mps))
-        self.frozen_time_pub.set(float(state.frozen_time_s))
-        self.smoothness_reward_pub.set(float(state.smoothness_reward))
+        timestamp_us = _sim_timestamp_us(state.time_s)
+        self.robot_pose_pub.set(_to_wpilib_pose(state.pose), timestamp_us)
+        self.other_robot_pose_pub.set(_to_wpilib_pose(state.other_robot_pose), timestamp_us)
+        self.coral_pose_pub.set(_to_wpilib_pose(env.current_coral_pose()), timestamp_us)
+        self.goal_pose_pub.set(_to_wpilib_pose(env.current_goal_pose()), timestamp_us)
+        self.objective_pose_pub.set(_to_wpilib_pose(env.current_objective_pose()), timestamp_us)
+        self.reef_pose_array_pub.set(_to_wpilib_poses(env.goal_poses), timestamp_us)
+        self.reward_pub.set(float(reward), timestamp_us)
+        self.total_reward_pub.set(float(state.total_reward), timestamp_us)
+        self.has_coral_pub.set(bool(state.has_coral), timestamp_us)
+        self.scored_coral_pub.set(int(state.scored_coral), timestamp_us)
+        self.intake_progress_pub.set(float(state.intake_progress_s), timestamp_us)
+        self.score_progress_pub.set(float(state.score_progress_s), timestamp_us)
+        self.is_intaking_pub.set(bool(state.is_intaking), timestamp_us)
+        self.is_scoring_pub.set(bool(state.is_scoring), timestamp_us)
+        self.other_robot_distance_pub.set(float(state.other_robot_distance_m), timestamp_us)
+        self.hit_other_robot_pub.set(bool(state.hit_other_robot), timestamp_us)
+        self.hard_hit_other_robot_pub.set(bool(state.hard_hit_other_robot), timestamp_us)
+        self.other_robot_hits_pub.set(int(state.other_robot_hits), timestamp_us)
+        self.other_robot_hard_hits_pub.set(int(state.other_robot_hard_hits), timestamp_us)
+        self.other_robot_impact_speed_pub.set(
+            float(state.other_robot_impact_speed_mps), timestamp_us
+        )
+        self.frozen_time_pub.set(float(state.frozen_time_s), timestamp_us)
+        self.smoothness_reward_pub.set(float(state.smoothness_reward), timestamp_us)
         self.inst.flush()
 
     def publish_training(
@@ -155,10 +158,12 @@ class AdvantageScopeNtPublisher:
         training_step: int,
         preview_episode_return: float,
         preview_episode: int,
+        sim_time_s: float | None = None,
     ) -> None:
-        self.training_step_pub.set(int(training_step))
-        self.preview_return_pub.set(float(preview_episode_return))
-        self.preview_episode_pub.set(int(preview_episode))
+        timestamp_us = 0 if sim_time_s is None else _sim_timestamp_us(sim_time_s)
+        self.training_step_pub.set(int(training_step), timestamp_us)
+        self.preview_return_pub.set(float(preview_episode_return), timestamp_us)
+        self.preview_episode_pub.set(int(preview_episode), timestamp_us)
         self.inst.flush()
 
 
@@ -174,3 +179,7 @@ def _to_wpilib_poses(poses: Sequence[SimPose2d]):
 
 def _clamp_duration(value: float) -> float:
     return max(0.05, min(5.0, float(value)))
+
+
+def _sim_timestamp_us(time_s: float) -> int:
+    return max(1, int(round(float(time_s) * 1_000_000.0)))

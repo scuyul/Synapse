@@ -93,6 +93,8 @@ Then in AdvantageScope:
 7. Tune `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS` live in NetworkTables. Both default to `0.25`.
 8. During RL training, plot `/RL/TrainingStep`, `/RL/PreviewEpisodeReturn`, and `/RL/PreviewEpisode`.
 
+Live telemetry is timestamped with simulated match time, not wall-clock NT time, so the AdvantageScope timeline should show seconds near `0..150` instead of epoch-sized timestamps.
+
 The CSV logger still exists for quick plots/debugging outside AdvantageScope:
 
 - `/Sim/RobotPose/x`
