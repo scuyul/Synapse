@@ -101,7 +101,6 @@ def main() -> int:
                     training_step=0,
                     preview_episode_return=episode_return,
                     preview_episode=episode,
-                    sim_time_s=env.state.time_s,
                 )
                 time.sleep(max(0.0, env.config.dt_s / max(args.speed, 0.001)))
                 if terminated or truncated:

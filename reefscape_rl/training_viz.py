@@ -49,7 +49,6 @@ class AdvantageScopeTrainingCallback(BaseCallback):
             training_step=0,
             preview_episode_return=0.0,
             preview_episode=self.preview_episode,
-            sim_time_s=self.preview_env.state.time_s,
         )
         print(f"AdvantageScope training stream started on 127.0.0.1:{self.config.port}")
 
@@ -71,7 +70,6 @@ class AdvantageScopeTrainingCallback(BaseCallback):
                 training_step=self.num_timesteps,
                 preview_episode_return=self.preview_return,
                 preview_episode=self.preview_episode,
-                sim_time_s=self.preview_env.state.time_s,
             )
             if terminated or truncated:
                 self.preview_episode += 1
