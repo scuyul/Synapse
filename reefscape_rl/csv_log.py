@@ -17,25 +17,19 @@ CSV_COLUMNS = (
     "/Sim/RobotVelocity/vx",
     "/Sim/RobotVelocity/vy",
     "/Sim/RobotVelocity/omega",
-    "/Sim/OtherRobotPose/x",
-    "/Sim/OtherRobotPose/y",
-    "/Sim/OtherRobotPose/heading",
-    "/Sim/OtherRobotVelocity/vx",
-    "/Sim/OtherRobotVelocity/vy",
-    "/Sim/OtherRobotDistance",
-    "/Sim/HitOtherRobot",
-    "/Sim/HardHitOtherRobot",
-    "/Sim/OtherRobotHits",
-    "/Sim/OtherRobotHardHits",
-    "/Sim/OtherRobotImpactSpeed",
     "/Sim/FrozenTime",
-    "/Sim/CoralPose/x",
-    "/Sim/CoralPose/y",
+    "/Sim/FuelPose/x",
+    "/Sim/FuelPose/y",
+    "/Sim/FuelPose/z",
+    "/Sim/ActiveShots",
     "/Sim/GoalPose/x",
     "/Sim/GoalPose/y",
-    "/Sim/HasCoral",
-    "/Sim/ScoredCoral",
-    "/Sim/TargetLevelCode",
+    "/Sim/HeldFuel",
+    "/Sim/ScoredFuel",
+    "/Sim/InactiveScoredFuel",
+    "/Sim/MissedFuel",
+    "/Sim/HubActive",
+    "/Sim/MatchPhaseCode",
     "/RL/Action/vx",
     "/RL/Action/vy",
     "/RL/Action/omega",
@@ -53,14 +47,6 @@ CSV_COLUMNS = (
     "/Tuning/IntakeDurationS",
     "/Tuning/ScoreDurationS",
 )
-
-
-LEVEL_CODES = {
-    "L1": 1,
-    "L2": 2,
-    "L3": 3,
-    "L4": 4,
-}
 
 
 class AdvantageScopeCsvLogger:
@@ -83,7 +69,8 @@ class AdvantageScopeCsvLogger:
         state = env.state
         if state is None:
             raise RuntimeError("Cannot log before env.reset().")
-        coral_pose = env.current_coral_pose()
+        fuel_pose = env.current_fuel_pose()
+        fuel_pose3d = env.current_fuel_pose3d()
         goal_pose = env.current_goal_pose()
         self._writer.writerow(
             {
@@ -94,25 +81,19 @@ class AdvantageScopeCsvLogger:
                 "/Sim/RobotVelocity/vx": f"{state.vx_mps:.6f}",
                 "/Sim/RobotVelocity/vy": f"{state.vy_mps:.6f}",
                 "/Sim/RobotVelocity/omega": f"{state.omega_radps:.6f}",
-                "/Sim/OtherRobotPose/x": f"{state.other_robot_pose.x:.6f}",
-                "/Sim/OtherRobotPose/y": f"{state.other_robot_pose.y:.6f}",
-                "/Sim/OtherRobotPose/heading": f"{state.other_robot_pose.heading:.6f}",
-                "/Sim/OtherRobotVelocity/vx": f"{state.other_robot_vx_mps:.6f}",
-                "/Sim/OtherRobotVelocity/vy": f"{state.other_robot_vy_mps:.6f}",
-                "/Sim/OtherRobotDistance": f"{info['other_robot_distance_m']:.6f}",
-                "/Sim/HitOtherRobot": "true" if info["hit_other_robot"] else "false",
-                "/Sim/HardHitOtherRobot": "true" if info["hard_hit_other_robot"] else "false",
-                "/Sim/OtherRobotHits": info["other_robot_hits"],
-                "/Sim/OtherRobotHardHits": info["other_robot_hard_hits"],
-                "/Sim/OtherRobotImpactSpeed": f"{info['other_robot_impact_speed_mps']:.6f}",
                 "/Sim/FrozenTime": f"{info['frozen_time_s']:.6f}",
-                "/Sim/CoralPose/x": f"{coral_pose.x:.6f}",
-                "/Sim/CoralPose/y": f"{coral_pose.y:.6f}",
+                "/Sim/FuelPose/x": f"{fuel_pose.x:.6f}",
+                "/Sim/FuelPose/y": f"{fuel_pose.y:.6f}",
+                "/Sim/FuelPose/z": f"{fuel_pose3d.z:.6f}",
+                "/Sim/ActiveShots": info["active_shots"],
                 "/Sim/GoalPose/x": f"{goal_pose.x:.6f}",
                 "/Sim/GoalPose/y": f"{goal_pose.y:.6f}",
-                "/Sim/HasCoral": "true" if state.has_coral else "false",
-                "/Sim/ScoredCoral": state.scored_coral,
-                "/Sim/TargetLevelCode": LEVEL_CODES[env.config.target_level],
+                "/Sim/HeldFuel": state.held_fuel,
+                "/Sim/ScoredFuel": state.scored_fuel,
+                "/Sim/InactiveScoredFuel": state.inactive_scored_fuel,
+                "/Sim/MissedFuel": state.missed_fuel,
+                "/Sim/HubActive": "true" if info["hub_active"] else "false",
+                "/Sim/MatchPhaseCode": info["match_phase_code"],
                 "/RL/Action/vx": f"{float(action[0]):.6f}",
                 "/RL/Action/vy": f"{float(action[1]):.6f}",
                 "/RL/Action/omega": f"{float(action[2]):.6f}",

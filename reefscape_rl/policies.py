@@ -1,4 +1,4 @@
-"""Baseline policies for smoke-testing the environment."""
+"""Baseline policies for smoke-testing the REBUILT environment."""
 
 from __future__ import annotations
 
@@ -7,17 +7,17 @@ import random
 
 from reefscape_rl.constants import (
     BLUE_REEF_CENTER,
+    BLUE_MIDFIELD_SWEEP_POINTS,
+    BLUE_TRENCH_LINE_X_M,
     FIELD_LENGTH_M,
     FIELD_WIDTH_M,
     INTAKE_RADIUS_M,
     MAX_ANGULAR_SPEED_RADPS,
     MAX_LINEAR_SPEED_MPS,
-    OTHER_ROBOT_RADIUS_M,
     REEF_CLEARANCE_M,
     REEF_OBSTACLE_RADIUS_M,
     ROBOT_RADIUS_M,
-    SCORE_HEADING_TOLERANCE_RAD,
-    SCORE_RADIUS_M,
+    TRENCH_CORRIDOR_WIDTH_M,
 )
 from reefscape_rl.env import ReefscapeEnv
 from reefscape_rl.geometry import clamp, normalize_angle
@@ -47,13 +47,16 @@ class HeuristicCyclePolicy:
 
         objective = env.current_objective_pose()
         objective_distance = state.pose.distance_to(objective)
+        sweep_target = self._midfield_sweep_waypoint(env)
         source_return_target = self._source_return_waypoint(env, objective.x, objective.y)
         scoring_route_target = self._scoring_route_waypoint(env, objective.x, objective.y)
-        if source_return_target is not None:
+        if sweep_target is not None:
+            target_x, target_y = sweep_target
+        elif source_return_target is not None:
             target_x, target_y = source_return_target
         elif scoring_route_target is not None:
             target_x, target_y = scoring_route_target
-        elif state.has_coral and objective_distance < 2.0:
+        elif state.has_fuel and objective_distance < 2.0:
             target_x, target_y = objective.x, objective.y
         else:
             target_x, target_y = self._avoid_reef_waypoint(
@@ -77,10 +80,15 @@ class HeuristicCyclePolicy:
 
         intake = 0.0
         score = 0.0
-        if state.has_coral:
+        should_stockpile = (
+            state.has_fuel
+            and not env.is_blue_hub_active()
+            and state.held_fuel < env.config.robot_fuel_capacity
+        )
+        if state.has_fuel and not should_stockpile:
             if (
-                objective_distance <= 0.18
-                and abs(heading_error) <= SCORE_HEADING_TOLERANCE_RAD
+                env.is_blue_hub_active()
+                and state.pose.x >= BLUE_TRENCH_LINE_X_M
                 and self._is_settled(env)
             ):
                 vx_norm = 0.0
@@ -88,7 +96,12 @@ class HeuristicCyclePolicy:
                 omega_norm = 0.0
                 score = 1.0
         else:
-            if objective_distance <= 0.18 and self._is_settled(env):
+            fuel_pose = env.current_fuel_pose()
+            can_intake = (
+                state.pose.distance_to((fuel_pose.x, fuel_pose.y)) <= INTAKE_RADIUS_M
+                and self._is_settled(env)
+            )
+            if can_intake:
                 vx_norm = 0.0
                 vy_norm = 0.0
                 omega_norm = 0.0
@@ -106,7 +119,9 @@ class HeuristicCyclePolicy:
         self, env: ReefscapeEnv, source_x: float, source_y: float
     ) -> tuple[float, float] | None:
         state = env.state
-        if state is None or state.has_coral:
+        if state is None or state.has_fuel:
+            return None
+        if source_x > FIELD_LENGTH_M * 0.4:
             return None
 
         center_x, center_y = BLUE_REEF_CENTER
@@ -124,27 +139,40 @@ class HeuristicCyclePolicy:
             return (state.pose.x - 0.8, exit_y)
         return (exit_x, lane_y)
 
+    def _midfield_sweep_waypoint(self, env: ReefscapeEnv) -> tuple[float, float] | None:
+        state = env.state
+        if state is None:
+            return None
+        if state.has_fuel and (
+            env.is_blue_hub_active() or state.held_fuel >= env.config.robot_fuel_capacity
+        ):
+            return None
+
+        objective = env.current_objective_pose()
+        midfield_x = FIELD_LENGTH_M / 2.0
+        if state.pose.x < BLUE_TRENCH_LINE_X_M - 0.35 and not _is_in_trench_corridor(state.pose.y):
+            lane_y = 1.05 if objective.y < FIELD_WIDTH_M / 2.0 else FIELD_WIDTH_M - 1.05
+            return BLUE_TRENCH_LINE_X_M - 0.65, lane_y
+        if state.pose.x < midfield_x - 2.0:
+            return objective.x, objective.y
+
+        index = int(state.time_s // 1.2) % len(BLUE_MIDFIELD_SWEEP_POINTS)
+        return BLUE_MIDFIELD_SWEEP_POINTS[index]
+
     def _scoring_route_waypoint(
         self, env: ReefscapeEnv, goal_x: float, goal_y: float
     ) -> tuple[float, float] | None:
         state = env.state
-        if state is None or not state.has_coral:
+        if state is None or not state.has_fuel or not env.is_blue_hub_active():
             return None
 
         center_x, center_y = BLUE_REEF_CENTER
-        if goal_x <= center_x + 1.0:
-            return None
-
-        if abs(goal_y - center_y) < 0.15:
-            lane_y = center_y + 2.45 if state.pose.y > center_y else center_y - 2.45
-        else:
-            lane_y = center_y + 2.45 if goal_y > center_y else center_y - 2.45
-        entry = (center_x - 0.55, lane_y)
-        exit_point = (center_x + 1.55, lane_y)
-        if state.pose.distance_to(entry) > 0.25 and state.pose.x < center_x - 0.25:
-            return entry
-        if state.pose.distance_to(exit_point) > 0.25 and state.pose.x < goal_x - 0.45:
-            return exit_point
+        lane_y = FIELD_WIDTH_M - 1.05 if state.pose.y > center_y else 1.05
+        far_entry = (BLUE_TRENCH_LINE_X_M + 0.65, lane_y)
+        if state.pose.x < BLUE_TRENCH_LINE_X_M - 0.20 and state.pose.distance_to((BLUE_TRENCH_LINE_X_M - 0.65, lane_y)) > 0.30:
+            return BLUE_TRENCH_LINE_X_M - 0.65, lane_y
+        if state.pose.x < BLUE_TRENCH_LINE_X_M + 0.35 and state.pose.distance_to(far_entry) > 0.30:
+            return far_entry
         return None
 
     def _avoid_reef_waypoint(
@@ -247,3 +275,6 @@ def _with_min_command(value: float, minimum: float) -> float:
         return value
     return math.copysign(minimum, value)
 
+
+def _is_in_trench_corridor(y: float) -> bool:
+    return y <= TRENCH_CORRIDOR_WIDTH_M or y >= FIELD_WIDTH_M - TRENCH_CORRIDOR_WIDTH_M

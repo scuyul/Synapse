@@ -24,8 +24,6 @@ class GymnasiumReefscapeEnv(gym.Env):
             config
             or ReefscapeEnvConfig(
                 auto_mechanisms=False,
-                randomize_other_robot_start=True,
-                randomize_other_robot_behavior=True,
             )
         )
         self.action_adapter = ResidualHeuristicActionAdapter() if residual_heuristic else None

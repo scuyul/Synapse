@@ -14,13 +14,13 @@ from reefscape_rl.policies import HeuristicCyclePolicy, RandomPolicy
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a REEFSCAPE simulator rollout.")
+    parser = argparse.ArgumentParser(description="Run a REBUILT simulator rollout.")
     parser.add_argument("--policy", choices=("heuristic", "random"), default="heuristic")
     parser.add_argument("--episodes", type=int, default=1)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--out", type=Path, default=Path("logs/rollout.csv"))
-    parser.add_argument("--duration", type=float, default=150.0)
-    parser.add_argument("--max-coral", type=int, default=12)
+    parser.add_argument("--duration", type=float, default=160.0)
+    parser.add_argument("--max-fuel", "--max-coral", dest="max_fuel", type=int, default=100)
     parser.add_argument("--fixed-start", action="store_true")
     return parser.parse_args()
 
@@ -35,7 +35,7 @@ def main() -> int:
     args = parse_args()
     config = ReefscapeEnvConfig(
         episode_duration_s=args.duration,
-        max_coral_scored=args.max_coral,
+        max_fuel_scored=args.max_fuel,
         randomize_start=not args.fixed_start,
     )
     env = ReefscapeEnv(config)
@@ -58,12 +58,12 @@ def main() -> int:
                     break
 
     avg_return = sum(episode_returns) / len(episode_returns)
-    scored = env.state.scored_coral if env.state is not None else 0
+    scored = env.state.scored_fuel if env.state is not None else 0
     print(f"Wrote {args.out}")
     print(f"Episodes: {args.episodes}")
     print(f"Steps: {total_steps}")
     print(f"Average return: {avg_return:.3f}")
-    print(f"Final episode scored coral: {scored}")
+    print(f"Final episode scored fuel: {scored}")
     return 0
 
 

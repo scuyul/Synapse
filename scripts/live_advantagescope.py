@@ -12,12 +12,11 @@ if str(REPO_ROOT) not in sys.path:
 from reefscape_rl.env import ReefscapeEnv, ReefscapeEnvConfig
 from reefscape_rl.nt_publisher import AdvantageScopeNtPublisher
 from reefscape_rl.policies import HeuristicCyclePolicy, RandomPolicy
-from reefscape_rl.xbox_controller import XboxController
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Stream the REEFSCAPE simulator to AdvantageScope over NetworkTables."
+        description="Stream the REBUILT simulator to AdvantageScope over NetworkTables."
     )
     parser.add_argument("--policy", choices=("heuristic", "random"), default="heuristic")
     parser.add_argument("--seed", type=int, default=1)
@@ -25,12 +24,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--speed", type=float, default=1.0, help="Realtime playback multiplier.")
     parser.add_argument("--loop", action="store_true", help="Restart when the episode ends.")
     parser.add_argument("--fixed-start", action="store_true")
-    parser.add_argument(
-        "--xbox-defense",
-        action="store_true",
-        help="Use the first Xbox controller to manually drive /AdvantageScope/OtherRobotPose.",
-    )
-    parser.add_argument("--xbox-deadband", type=float, default=0.08)
     return parser.parse_args()
 
 
@@ -42,26 +35,15 @@ def make_policy(name: str, seed: int):
 
 def main() -> int:
     args = parse_args()
-    config = ReefscapeEnvConfig(
-        randomize_start=not args.fixed_start,
-        other_robot_manual_control=args.xbox_defense,
-    )
+    config = ReefscapeEnvConfig(randomize_start=not args.fixed_start)
     env = ReefscapeEnv(config)
     policy = make_policy(args.policy, args.seed)
     publisher = AdvantageScopeNtPublisher.start_server(port=args.port)
-    controller = None
-    if args.xbox_defense:
-        try:
-            controller = XboxController.open_first(deadband=args.xbox_deadband)
-        except RuntimeError as exc:
-            print(exc)
-            return 2
 
     print(f"NetworkTables server started on 127.0.0.1:{args.port}")
     print("In AdvantageScope: connect to NetworkTables at 127.0.0.1.")
     print("Open 2D Field and add /AdvantageScope/RobotPose as a robot pose.")
-    print("Add /AdvantageScope/OtherRobotPose as another robot/object pose.")
-    print("Add /AdvantageScope/CoralPose and /AdvantageScope/GoalPose as object poses.")
+    print("Add /AdvantageScope/FuelPose3d, /AdvantageScope/FuelPose, and /AdvantageScope/GoalPose as object poses.")
     print("Press Ctrl+C to stop.")
 
     episode = 0
@@ -71,8 +53,6 @@ def main() -> int:
             publisher.publish(env)
             while True:
                 publisher.apply_tunables(env)
-                if controller is not None:
-                    env.set_other_robot_manual_command(*controller.command())
                 action = policy(env)
                 _, reward, terminated, truncated, _ = env.step(action)
                 publisher.publish(env, reward=reward)
@@ -85,12 +65,8 @@ def main() -> int:
                 break
     except KeyboardInterrupt:
         print("Stopped.")
-        if controller is not None:
-            controller.close()
         return 0
 
-    if controller is not None:
-        controller.close()
     print("Episode complete.")
     return 0
 

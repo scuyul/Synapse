@@ -13,9 +13,9 @@ if str(REPO_ROOT) not in sys.path:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train PPO on the REEFSCAPE environment.")
+    parser = argparse.ArgumentParser(description="Train PPO on the REBUILT environment.")
     parser.add_argument("--timesteps", type=int, default=100_000)
-    parser.add_argument("--model-out", type=Path, default=Path("models/reefscape_ppo"))
+    parser.add_argument("--model-out", type=Path, default=Path("models/rebuilt_ppo"))
     parser.add_argument("--n-envs", type=int, default=8)
     parser.add_argument("--n-steps", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=1024)
@@ -36,11 +36,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--advantage-port", type=int, default=5810)
     parser.add_argument("--viz-every-steps", type=int, default=512)
     parser.add_argument("--viz-preview-steps", type=int, default=25)
-    parser.add_argument(
-        "--fixed-defense",
-        action="store_true",
-        help="Disable randomized defense-bot path/speed/start during training.",
-    )
     parser.add_argument(
         "--device",
         choices=("auto", "cuda", "cpu"),
@@ -87,15 +82,7 @@ def main() -> int:
     if device == "cuda":
         print(f"CUDA device: {torch.cuda.get_device_name(0)}")
     def make_env():
-        return GymnasiumReefscapeEnv(
-            config=None
-            if not args.fixed_defense
-            else ReefscapeEnvConfig(
-                auto_mechanisms=False,
-                randomize_other_robot_start=False,
-                randomize_other_robot_behavior=False,
-            )
-        )
+        return GymnasiumReefscapeEnv(config=ReefscapeEnvConfig(auto_mechanisms=False))
 
     env = make_vec_env(make_env, n_envs=args.n_envs)
     if args.resume_from is not None:
@@ -180,7 +167,7 @@ class RotatingCheckpointCallback(BaseCallback):
     def _on_step(self) -> bool:
         if self.num_timesteps <= 0 or self.num_timesteps % self.every_steps != 0:
             return True
-        path = self.checkpoint_dir / f"reefscape_ppo_step_{self.num_timesteps}"
+        path = self.checkpoint_dir / f"rebuilt_ppo_step_{self.num_timesteps}"
         self.model.save(path)
         zip_path = path.with_suffix(".zip")
         self.saved.append(zip_path)

@@ -21,6 +21,16 @@ class Pose2d:
         return math.hypot(self.x - ox, self.y - oy)
 
 
+@dataclass(slots=True)
+class Pose3d:
+    x: float
+    y: float
+    z: float
+    roll: float = 0.0
+    pitch: float = 0.0
+    yaw: float = 0.0
+
+
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 

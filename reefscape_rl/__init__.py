@@ -1,4 +1,4 @@
-"""Simplified REEFSCAPE RL simulator."""
+"""Simplified REBUILT RL simulator."""
 
 from reefscape_rl.env import ReefscapeEnv, ReefscapeEnvConfig
 

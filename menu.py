@@ -12,7 +12,7 @@ PYTHON = sys.executable
 def main() -> int:
     while True:
         print()
-        print("REEFSCAPE RL Menu")
+        print("REBUILT RL Menu")
         print("=================")
         print("1. Watch heuristic simulator in AdvantageScope")
         print("2. Train PPO model with AdvantageScope preview")
@@ -57,8 +57,6 @@ def run_live_heuristic() -> None:
     speed = prompt_float("Playback speed", 1.0)
     loop = prompt_bool("Loop episodes", True)
     fixed_start = prompt_bool("Fixed start", True)
-    xbox_defense = prompt_bool("Drive defense robot with Xbox controller", False)
-
     cmd = [
         PYTHON,
         "scripts/live_advantagescope.py",
@@ -75,17 +73,15 @@ def run_live_heuristic() -> None:
         cmd.append("--loop")
     if fixed_start:
         cmd.append("--fixed-start")
-    if xbox_defense:
-        cmd.append("--xbox-defense")
     run_command(cmd)
 
 
 def run_training(*, smoke: bool = False, resume: bool = False) -> None:
     timesteps = prompt_int("Training timesteps", 256 if smoke else 100_000)
-    model_out = prompt_text("Model output path", "models/smoke_train_viz" if smoke else "models/reefscape_ppo")
+    model_out = prompt_text("Model output path", "models/smoke_train_viz" if smoke else "models/rebuilt_ppo")
     resume_from = ""
     if resume:
-        resume_from = prompt_text("Resume from model/checkpoint .zip", "models/reefscape_ppo_interrupted.zip")
+        resume_from = prompt_text("Resume from model/checkpoint .zip", "models/rebuilt_ppo_interrupted.zip")
     device = prompt_choice("Device", "cuda", {"auto", "cuda", "cpu"})
     n_envs = prompt_int("Parallel envs", 2 if smoke else 8)
     n_steps = prompt_int("PPO rollout steps per env", 64 if smoke else 512)
@@ -98,7 +94,6 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
     pretrain_samples = prompt_int("Heuristic pretrain samples", 50_000)
     pretrain_epochs = prompt_int("Heuristic pretrain epochs", 10)
     advantagescope = prompt_bool("Stream training preview to AdvantageScope", True)
-    varied_defense = prompt_bool("Randomize defense bot during training", True)
     port = prompt_int("AdvantageScope NT port", 5810)
     viz_every = prompt_int("Preview every N training steps", 64 if smoke else 512)
     viz_steps = prompt_int("Preview sim steps per update", 5 if smoke else 25)
@@ -143,13 +138,11 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
         cmd.append("--skip-heuristic-pretrain")
     if not advantagescope:
         cmd.append("--no-advantagescope")
-    if not varied_defense:
-        cmd.append("--fixed-defense")
     run_command(cmd)
 
 
 def run_trained_model(*, smoke: bool = False) -> None:
-    model = prompt_text("Model path", "models/reefscape_ppo.zip")
+    model = prompt_text("Model path", "models/rebuilt_ppo.zip")
     episodes = prompt_int("Episodes", 1)
     seed = prompt_int("Seed", 1)
     port = prompt_int("AdvantageScope NT port", 5810)
@@ -158,8 +151,6 @@ def run_trained_model(*, smoke: bool = False) -> None:
     fixed_start = prompt_bool("Fixed start", True)
     deterministic = prompt_bool("Deterministic actions", False)
     auto_mechanisms = prompt_bool("Auto-run mechanisms", False)
-    xbox_defense = prompt_bool("Drive defense robot with Xbox controller", False)
-
     cmd = [
         PYTHON,
         "scripts/run_trained_model.py",
@@ -182,8 +173,6 @@ def run_trained_model(*, smoke: bool = False) -> None:
         cmd.append("--deterministic")
     if auto_mechanisms:
         cmd.append("--auto-mechanisms")
-    if xbox_defense:
-        cmd.append("--xbox-defense")
     run_command(cmd)
 
 
@@ -191,8 +180,8 @@ def run_rollout_log() -> None:
     policy = prompt_choice("Policy", "heuristic", {"heuristic", "random"})
     episodes = prompt_int("Episodes", 1)
     seed = prompt_int("Seed", 1)
-    duration = prompt_float("Episode duration seconds", 150.0)
-    max_coral = prompt_int("Max coral scored", 12)
+    duration = prompt_float("Episode duration seconds", 160.0)
+    max_fuel = prompt_int("Max fuel scored", 100)
     out = prompt_text("Output CSV path", "logs/heuristic_rollout.csv")
     fixed_start = prompt_bool("Fixed start", True)
 
@@ -207,8 +196,8 @@ def run_rollout_log() -> None:
         str(seed),
         "--duration",
         str(duration),
-        "--max-coral",
-        str(max_coral),
+        "--max-fuel",
+        str(max_fuel),
         "--out",
         out,
     ]

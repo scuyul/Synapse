@@ -2,106 +2,138 @@ from __future__ import annotations
 
 import unittest
 
-from reefscape_rl.constants import BLUE_CORAL_STATIONS, BLUE_REEF_CENTER
+from reefscape_rl.constants import BLUE_HUB_CENTER, BLUE_TRENCH_LINE_X_M, FUEL_SHOT_RATE_BPS
 from reefscape_rl.env import OBSERVATION_FIELDS, ReefscapeEnv, ReefscapeEnvConfig
 from reefscape_rl.geometry import Pose2d
 
 
-class ReefscapeEnvTests(unittest.TestCase):
+class RebuiltEnvTests(unittest.TestCase):
     def test_reset_returns_expected_observation_size(self) -> None:
         env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
         obs, info = env.reset(seed=1)
 
         self.assertEqual(len(obs), len(OBSERVATION_FIELDS))
-        self.assertEqual(info["scored_coral"], 0)
-        self.assertFalse(info["has_coral"])
+        self.assertEqual(info["scored_fuel"], 0)
+        self.assertEqual(info["held_fuel"], 0)
+        self.assertEqual(info["active_shots"], 0)
+        self.assertGreater(info["fuel_pose3d"].z, 0.0)
+        self.assertEqual(env.config.robot_fuel_capacity, 50)
+        self.assertEqual(info["source_remaining"], 100)
+        self.assertTrue(info["hub_active"])
+        self.assertEqual(len(env.fuel_poses3d()), 100)
 
-    def test_can_acquire_coral_at_station(self) -> None:
+    def test_default_intake_objective_prefers_midfield_fuel(self) -> None:
         env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
         env.reset(seed=1)
-        station = BLUE_CORAL_STATIONS[0]
-        env.state.pose = Pose2d(station[0], station[1], 0.0)
-        env.state.current_source_index = 0
 
-        _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 1.0, 0.0])
+        objective = env.current_objective_pose()
+
+        self.assertGreater(objective.x, 7.0)
+
+    def test_can_drive_over_fuel_to_acquire_it(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+        ball = next(ball for ball in env.state.fuel_balls if not ball.collected)
+        env.state.pose = Pose2d(ball.x, ball.y, 0.0)
+
+        _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
 
         self.assertGreater(reward, 0.0)
-        self.assertFalse(info["has_coral"])
-        self.assertEqual(info["event_code"], 3)
-
-        for _ in range(20):
-            _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 1.0, 0.0])
-            if info["has_coral"]:
-                break
-
-        self.assertTrue(info["has_coral"])
+        self.assertGreaterEqual(info["held_fuel"], 1)
         self.assertEqual(info["event_code"], 1)
+        self.assertLess(info["source_remaining"], 100)
 
-    def test_can_score_when_at_goal_with_coral(self) -> None:
+    def test_score_action_launches_fuel_then_scores_in_active_hub(self) -> None:
         env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
         env.reset(seed=1)
-        goal = env.current_goal_pose()
-        env.state.pose = Pose2d(goal.x, goal.y, goal.heading)
-        env.state.has_coral = True
+        env.state.pose = Pose2d(BLUE_TRENCH_LINE_X_M + 0.5, 1.05, 0.0)
+        env.state.held_fuel = 1
 
-        _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 1.0])
+        for _ in range(20):
+            _, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+            if info["active_shots"] > 0:
+                break
 
-        self.assertLess(reward, 1.0)
-        self.assertTrue(info["has_coral"])
+        self.assertEqual(info["held_fuel"], 0)
+        self.assertEqual(info["active_shots"], 1)
+        self.assertGreater(info["fuel_pose3d"].z, 0.5)
         self.assertEqual(info["event_code"], 4)
 
         for _ in range(20):
-            _, reward, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 1.0])
-            if not info["has_coral"]:
+            _, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+            if info["scored_fuel"] == 1:
                 break
 
-        self.assertEqual(info["scored_points"], 5)
-        self.assertFalse(info["has_coral"])
-        self.assertEqual(info["scored_coral"], 1)
+        self.assertEqual(info["scored_points"], 1)
+        self.assertEqual(info["scored_fuel"], 1)
+        self.assertEqual(info["active_shots"], 0)
+        self.assertGreater(info["falling_fuel"], 0)
         self.assertEqual(info["event_code"], 2)
 
-    def test_robot_is_pushed_out_of_reef_keepout(self) -> None:
+        for _ in range(20):
+            _, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+            if info["falling_fuel"] == 0:
+                break
+
+        self.assertGreaterEqual(info["source_remaining"], 100)
+
+    def test_auto_shoots_at_15_balls_per_second(self) -> None:
         env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
         env.reset(seed=1)
-        env.state.pose = Pose2d(BLUE_REEF_CENTER[0], BLUE_REEF_CENTER[1], 0.0)
+        env.state.pose = Pose2d(BLUE_TRENCH_LINE_X_M + 0.5, 1.05, 0.0)
+        env.state.held_fuel = 10
+
+        for _ in range(10):
+            _, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+
+        self.assertEqual(info["held_fuel"], 0)
+        self.assertAlmostEqual(env.config.shot_period_s, 1.0 / FUEL_SHOT_RATE_BPS)
+
+    def test_inactive_hub_stockpiles_instead_of_shooting(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False, blue_auto_won=True))
+        env.reset(seed=1)
+        env.state.time_s = 30.0
+        env.state.pose = Pose2d(BLUE_TRENCH_LINE_X_M + 0.5, 1.05, 0.0)
+        env.state.held_fuel = 1
+
+        for _ in range(20):
+            _, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
+
+        self.assertFalse(info["hub_active"])
+        self.assertEqual(info["held_fuel"], 1)
+        self.assertEqual(info["scored_fuel"], 0)
+        self.assertEqual(info["inactive_scored_fuel"], 0)
+
+    def test_cannot_shoot_from_blue_side_of_trench(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+        env.state.pose = Pose2d(BLUE_TRENCH_LINE_X_M - 0.5, 1.05, 0.0)
+        env.state.held_fuel = 1
+
+        for _ in range(5):
+            _, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 1.0])
+
+        self.assertEqual(info["held_fuel"], 1)
+        self.assertEqual(info["active_shots"], 0)
+
+    def test_trench_blocks_non_corridor_crossing(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+        env.state.pose = Pose2d(BLUE_TRENCH_LINE_X_M - 0.15, 4.0, 0.0)
+
+        env.step([1.0, 0.0, 0.0, 0.0, 0.0])
+
+        self.assertLess(env.state.pose.x, BLUE_TRENCH_LINE_X_M)
+
+    def test_robot_is_pushed_out_of_hub_keepout(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+        env.state.pose = Pose2d(BLUE_HUB_CENTER[0], BLUE_HUB_CENTER[1], 0.0)
 
         _, reward, _, _, _ = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
 
         self.assertLess(reward, 0.0)
-        self.assertGreater(env.state.pose.distance_to(BLUE_REEF_CENTER), 1.5)
-
-    def test_other_robot_moves_and_is_observed(self) -> None:
-        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
-        obs, _ = env.reset(seed=1)
-        start_x = env.state.other_robot_pose.x
-        start_y = env.state.other_robot_pose.y
-
-        obs, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
-
-        self.assertEqual(len(obs), len(OBSERVATION_FIELDS))
-        self.assertNotEqual((env.state.other_robot_pose.x, env.state.other_robot_pose.y), (start_x, start_y))
-        self.assertIn("other_robot_distance_m", info)
-
-    def test_hitting_other_robot_is_penalized(self) -> None:
-        env = ReefscapeEnv(
-            ReefscapeEnvConfig(randomize_start=False, other_robot_speed_mps=0.0)
-        )
-        env.reset(seed=1)
-        env.state.pose = Pose2d(
-            env.state.other_robot_pose.x - 0.90,
-            env.state.other_robot_pose.y,
-            0.0,
-        )
-        env.state.vx_mps = 3.0
-
-        _, reward, _, _, info = env.step([1.0, 0.0, 0.0, 0.0, 0.0])
-
-        self.assertLess(reward, -1.0)
-        self.assertTrue(info["hit_other_robot"])
-        self.assertTrue(info["hard_hit_other_robot"])
-        self.assertEqual(info["other_robot_hits"], 1)
-        self.assertEqual(info["other_robot_hard_hits"], 1)
-        self.assertGreaterEqual(info["other_robot_impact_speed_mps"], 1.0)
+        self.assertGreater(env.state.pose.distance_to(BLUE_HUB_CENTER), 1.3)
 
     def test_freezing_far_from_objective_is_penalized(self) -> None:
         env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
