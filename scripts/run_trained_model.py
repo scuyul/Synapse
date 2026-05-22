@@ -13,6 +13,10 @@ import numpy as np
 
 from reefscape_rl.action_adapter import ResidualHeuristicActionAdapter
 from reefscape_rl.env import ReefscapeEnv, ReefscapeEnvConfig
+from reefscape_rl.mental_visualizer import (
+    MentalVisualizerPublisher,
+    build_mental_snapshot,
+)
 from reefscape_rl.nt_publisher import AdvantageScopeNtPublisher
 from reefscape_rl.xbox_controller import XboxController
 
@@ -33,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manual-mechanisms", action="store_true")
     parser.add_argument("--raw-actions", action="store_true")
     parser.add_argument(
+        "--mental-visualizer",
+        action="store_true",
+        help="Publish demo-friendly /AI/Mental/* topics and /AdvantageScope/AIAttentionPose.",
+    )
+    parser.add_argument(
         "--xbox-defense",
         action="store_true",
         help="Use the first Xbox controller to manually drive /AdvantageScope/OtherRobotPose.",
@@ -46,7 +55,7 @@ def main() -> int:
         from stable_baselines3 import PPO
     except ImportError as exc:
         print(exc)
-        print("Install optional dependencies with: pip install -e .[rl]")
+        print("Install dependencies with: python -m pip install -r .\\requirements.txt")
         return 2
 
     args = parse_args()
@@ -64,6 +73,9 @@ def main() -> int:
     )
     action_adapter = None if args.raw_actions else ResidualHeuristicActionAdapter()
     publisher = AdvantageScopeNtPublisher.start_server(port=args.port)
+    mental_visualizer = (
+        MentalVisualizerPublisher(publisher.inst) if args.mental_visualizer else None
+    )
     controller = None
     if args.xbox_defense:
         try:
@@ -75,6 +87,8 @@ def main() -> int:
     print(f"Loaded model: {args.model}")
     print(f"NetworkTables server started on 127.0.0.1:{args.port}")
     print("In AdvantageScope: connect to NetworkTables at 127.0.0.1.")
+    if mental_visualizer is not None:
+        print("Mental visualizer enabled: add /AdvantageScope/AIAttentionPose and /AI/Mental/*.")
     print("Press Ctrl+C to stop.")
 
     episode = 0
@@ -97,6 +111,10 @@ def main() -> int:
                 obs, reward, terminated, truncated, info = env.step(sim_action)
                 episode_return += float(reward)
                 publisher.publish(env, reward=float(reward))
+                if mental_visualizer is not None:
+                    mental_visualizer.publish(
+                        build_mental_snapshot(env, sim_action, raw_action=action)
+                    )
                 publisher.publish_training(
                     training_step=0,
                     preview_episode_return=episode_return,

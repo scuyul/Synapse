@@ -5,6 +5,7 @@ import unittest
 from reefscape_rl.constants import BLUE_CORAL_STATIONS, BLUE_REEF_CENTER
 from reefscape_rl.env import OBSERVATION_FIELDS, ReefscapeEnv, ReefscapeEnvConfig
 from reefscape_rl.geometry import Pose2d
+from reefscape_rl.mental_visualizer import build_mental_snapshot
 
 
 class ReefscapeEnvTests(unittest.TestCase):
@@ -132,6 +133,18 @@ class ReefscapeEnvTests(unittest.TestCase):
             jerky_total += jerky_info["smoothness_reward"]
 
         self.assertGreater(smooth_total, jerky_total)
+
+    def test_mental_visualizer_reports_objective_focus(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+
+        snapshot = build_mental_snapshot(env, [0.4, 0.0, 0.0, 0.0, 0.0])
+
+        self.assertEqual(snapshot.intent, "route to coral station")
+        self.assertEqual(snapshot.focus, "objective")
+        self.assertGreaterEqual(snapshot.confidence, 0.0)
+        self.assertLessEqual(snapshot.confidence, 1.0)
+        self.assertIn("route to coral station", snapshot.thought_trace)
 
 
 if __name__ == "__main__":

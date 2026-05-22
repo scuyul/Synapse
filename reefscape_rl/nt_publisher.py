@@ -54,7 +54,9 @@ class AdvantageScopeNtPublisher:
             from ntcore import NetworkTableInstance
             from wpimath.geometry import Pose2d
         except ImportError as exc:
-            raise ImportError("Install RobotPy first: python -m pip install robotpy") from exc
+            raise ImportError(
+                "Install dependencies first: python -m pip install -r .\\requirements.txt"
+            ) from exc
 
         inst = NetworkTableInstance.getDefault()
         inst.stopServer()

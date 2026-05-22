@@ -17,6 +17,7 @@ The current simulator is intentionally small:
 Use the interactive menu:
 
 ```powershell
+python -m pip install -r .\requirements.txt
 python .\menu.py
 ```
 
@@ -38,6 +39,9 @@ Train PPO after installing optional RL dependencies. The trainer defaults to `--
 python .\scripts\train_ppo.py --timesteps 100000 --device auto --n-envs 8
 ```
 
+Use `--timesteps 0` to train until you stop it with Ctrl+C. The trainer will
+save the current model to `*_interrupted.zip` when interrupted.
+
 Training randomizes the defense bot's start phase, direction, path variant, and speed by default so the policy is better prepared for Xbox-controlled defense. Use `--fixed-defense` only when you want the old repeatable defense path.
 
 Training streams a live preview rollout to AdvantageScope by default. While training runs, connect AdvantageScope to NetworkTables at `127.0.0.1` and watch the same `/AdvantageScope/*`, `/Sim/*`, and `/RL/*` topics. Use `--no-advantagescope` to disable this.
@@ -48,6 +52,15 @@ Run a saved trained model:
 
 ```powershell
 python .\scripts\run_trained_model.py --model .\models\reefscape_ppo.zip --fixed-start --loop
+```
+
+For demo mode, add the synthetic mental visualizer. It publishes readable
+`/AI/Mental/*` telemetry plus `/AdvantageScope/AIAttentionPose`, so the field can
+show what the policy is focusing on while plots show intent, confidence, risk,
+and action energy:
+
+```powershell
+python .\scripts\run_trained_model.py --model .\models\reefscape_ppo.zip --fixed-start --loop --mental-visualizer
 ```
 
 To manually drive the defense robot with an Xbox controller, connect the controller first and opt in:
@@ -92,6 +105,7 @@ Then in AdvantageScope:
 6. Plot `/Sim/IsIntaking`, `/Sim/IsScoring`, `/Sim/IntakeProgress`, `/Sim/ScoreProgress`, `/Sim/HasCoral`, `/Sim/ScoredCoral`, `/Sim/FrozenTime`, `/RL/SmoothnessReward`, `/Sim/OtherRobotDistance`, `/Sim/HitOtherRobot`, `/Sim/HardHitOtherRobot`, `/Sim/OtherRobotHits`, `/Sim/OtherRobotHardHits`, and `/Sim/OtherRobotImpactSpeed` to see pickup/placement timing, stalls, smoothness, and collision severity.
 7. Tune `/Tuning/IntakeDurationS` and `/Tuning/ScoreDurationS` live in NetworkTables. Both default to `0.25`.
 8. During RL training, plot `/RL/TrainingStep`, `/RL/PreviewEpisodeReturn`, and `/RL/PreviewEpisode`.
+9. When running a trained model with `--mental-visualizer`, add `/AdvantageScope/AIAttentionPose` as an object pose and plot `/AI/Mental/Intent`, `/AI/Mental/Focus`, `/AI/Mental/Confidence`, `/AI/Mental/Risk`, `/AI/Mental/ActionEnergy`, and `/AI/Mental/ThoughtTrace`.
 
 The CSV logger still exists for quick plots/debugging outside AdvantageScope:
 

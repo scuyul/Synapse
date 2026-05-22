@@ -1,0 +1,9 @@
+# Pinned project/runtime dependencies for the local REEFSCAPE RL demo environment.
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+numpy==2.4.4
+gymnasium==1.0.0
+stable-baselines3==2.4.0
+torch==2.11.0+cu130
+robotpy==2026.2.2
+pygame==2.6.1

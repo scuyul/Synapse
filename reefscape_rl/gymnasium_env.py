@@ -8,7 +8,7 @@ try:
     import numpy as np
 except ImportError as exc:  # pragma: no cover - optional dependency guard
     raise ImportError(
-        "Install optional RL dependencies first: pip install -e .[rl]"
+        "Install dependencies first: python -m pip install -r .\\requirements.txt"
     ) from exc
 
 from reefscape_rl.action_adapter import ResidualHeuristicActionAdapter

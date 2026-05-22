@@ -81,7 +81,9 @@ def run_live_heuristic() -> None:
 
 
 def run_training(*, smoke: bool = False, resume: bool = False) -> None:
-    timesteps = prompt_int("Training timesteps", 256 if smoke else 100_000)
+    timesteps = prompt_int(
+        "Training timesteps (0 = until Ctrl+C)", 256 if smoke else 100_000
+    )
     model_out = prompt_text("Model output path", "models/smoke_train_viz" if smoke else "models/reefscape_ppo")
     resume_from = ""
     if resume:
@@ -158,6 +160,7 @@ def run_trained_model(*, smoke: bool = False) -> None:
     fixed_start = prompt_bool("Fixed start", True)
     deterministic = prompt_bool("Deterministic actions", False)
     auto_mechanisms = prompt_bool("Auto-run mechanisms", False)
+    mental_visualizer = prompt_bool("Show AI mental visualizer telemetry", True)
     xbox_defense = prompt_bool("Drive defense robot with Xbox controller", False)
 
     cmd = [
@@ -182,6 +185,8 @@ def run_trained_model(*, smoke: bool = False) -> None:
         cmd.append("--deterministic")
     if auto_mechanisms:
         cmd.append("--auto-mechanisms")
+    if mental_visualizer:
+        cmd.append("--mental-visualizer")
     if xbox_defense:
         cmd.append("--xbox-defense")
     run_command(cmd)

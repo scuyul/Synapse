@@ -11,10 +11,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+TRAIN_UNTIL_STOPPED_TIMESTEPS = 2_147_483_647
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train PPO on the REEFSCAPE environment.")
-    parser.add_argument("--timesteps", type=int, default=100_000)
+    parser.add_argument(
+        "--timesteps",
+        type=int,
+        default=100_000,
+        help="Training timesteps. Use 0 to train until stopped with Ctrl+C.",
+    )
     parser.add_argument("--model-out", type=Path, default=Path("models/reefscape_ppo"))
     parser.add_argument("--n-envs", type=int, default=8)
     parser.add_argument("--n-steps", type=int, default=512)
@@ -65,10 +72,18 @@ def main() -> int:
         from reefscape_rl.imitation import ImitationConfig, pretrain_from_heuristic
     except ImportError as exc:
         print(exc)
-        print("Install optional dependencies with: pip install -e .[rl]")
+        print("Install dependencies with: python -m pip install -r .\\requirements.txt")
         return 2
 
     args = parse_args()
+    try:
+        total_timesteps = _resolve_total_timesteps(args.timesteps)
+    except ValueError as exc:
+        print(exc)
+        return 2
+    if args.timesteps == 0:
+        print("Training until stopped. Press Ctrl+C to save an interrupted model.")
+
     rollout_size = args.n_envs * args.n_steps
     batch_size = min(args.batch_size, rollout_size)
     if batch_size != args.batch_size:
@@ -150,7 +165,7 @@ def main() -> int:
     callback = CallbackList(callbacks) if callbacks else None
     try:
         model.learn(
-            total_timesteps=args.timesteps,
+            total_timesteps=total_timesteps,
             callback=callback,
             reset_num_timesteps=args.resume_from is None,
         )
@@ -164,6 +179,14 @@ def main() -> int:
     model.save(args.model_out)
     print(f"Wrote {args.model_out}.zip")
     return 0
+
+
+def _resolve_total_timesteps(timesteps: int) -> int:
+    if timesteps < 0:
+        raise ValueError("--timesteps must be >= 0")
+    if timesteps == 0:
+        return TRAIN_UNTIL_STOPPED_TIMESTEPS
+    return timesteps
 
 
 class RotatingCheckpointCallback(BaseCallback):
