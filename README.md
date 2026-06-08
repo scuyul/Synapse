@@ -1,6 +1,6 @@
 # REEFSCAPE RL Simulator
 
-This is the first MVP for training an RL policy to drive a robot in a simplified FRC 2025 REEFSCAPE-style task.
+This is a prototype for training an RL policy to drive a robot in a simplified FRC 2025 REEFSCAPE-style task.
 
 The current simulator is intentionally small:
 
