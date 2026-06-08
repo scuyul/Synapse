@@ -21,6 +21,12 @@ python -m pip install -r .\requirements.txt
 python .\menu.py
 ```
 
+Open the browser-based training studio directly:
+
+```powershell
+python .\scripts\training_studio.py
+```
+
 Run a heuristic rollout and write a log:
 
 ```powershell
@@ -33,7 +39,7 @@ Run tests:
 python -m unittest discover -s tests
 ```
 
-Train PPO after installing optional RL dependencies. The trainer defaults to `--device auto`, which uses CUDA when PyTorch can see the RTX 4060:
+Train PPO after installing optional RL dependencies. The trainer defaults to `--device cuda` for the RTX 4060; use `--device auto` or `--device cpu` only as a fallback:
 
 ```powershell
 python .\scripts\train_ppo.py --timesteps 100000 --device auto --n-envs 8
@@ -124,7 +130,7 @@ The CSV logger still exists for quick plots/debugging outside AdvantageScope:
 
 ## Next Milestones
 
-1. Add a Gymnasium wrapper and Stable-Baselines3 PPO training script.
+1. Add a repeatable PPO evaluation report with scoring, collision, and cycle-time metrics.
 2. Add WPILOG/NT4 structured telemetry for native AdvantageScope Field visualization.
 3. Add algae, processor/net scoring, branch occupancy, and richer multi-robot traffic.
 4. Add domain randomization for sensor noise, latency, friction, and start poses.

@@ -23,7 +23,8 @@ def main() -> int:
         print("7. Quick train smoke test")
         print("8. Quick trained-model smoke run")
         print("9. Resume PPO training from model/checkpoint")
-        print("10. Exit")
+        print("10. Open training web studio")
+        print("11. Exit")
         choice = input("Select option: ").strip()
 
         if choice == "1":
@@ -45,6 +46,8 @@ def main() -> int:
         elif choice == "9":
             run_training(resume=True)
         elif choice == "10":
+            run_training_studio()
+        elif choice == "11":
             return 0
         else:
             print("Invalid option.")
@@ -219,6 +222,20 @@ def run_rollout_log() -> None:
     ]
     if fixed_start:
         cmd.append("--fixed-start")
+    run_command(cmd)
+
+
+def run_training_studio() -> None:
+    port = prompt_int("Training studio port", 8765)
+    open_browser = prompt_bool("Open browser automatically", True)
+    cmd = [
+        PYTHON,
+        "scripts/training_studio.py",
+        "--port",
+        str(port),
+    ]
+    if not open_browser:
+        cmd.append("--no-open")
     run_command(cmd)
 
 

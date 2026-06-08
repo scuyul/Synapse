@@ -84,6 +84,10 @@ OBSERVATION_FIELDS = (
     "other_robot_distance_norm",
 )
 
+OTHER_ROBOT_SPEED_SCALE_MIN = 0.55
+OTHER_ROBOT_SPEED_SCALE_MAX = 1.65
+OTHER_ROBOT_PATH_VARIANT_COUNT = 3
+
 
 @dataclass(slots=True)
 class ReefscapeEnvConfig:
@@ -611,8 +615,13 @@ class ReefscapeEnv:
         if not self.config.randomize_other_robot_behavior:
             return
         state.other_robot_direction = -1 if self._rng.random() < 0.5 else 1
-        state.other_robot_path_variant = self._rng.randrange(3)
-        state.other_robot_speed_scale = self._rng.uniform(0.55, 1.65)
+        state.other_robot_path_variant = self._rng.randrange(
+            OTHER_ROBOT_PATH_VARIANT_COUNT
+        )
+        state.other_robot_speed_scale = self._rng.uniform(
+            OTHER_ROBOT_SPEED_SCALE_MIN,
+            OTHER_ROBOT_SPEED_SCALE_MAX,
+        )
         path = self._other_robot_path()
         nearest_index = min(
             range(len(path)),

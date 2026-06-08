@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 from pathlib import Path
 import sys
 import time
@@ -31,6 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("models/checkpoints"))
     parser.add_argument("--checkpoint-every-steps", type=int, default=10_000)
     parser.add_argument("--keep-checkpoints", type=int, default=2)
+    parser.add_argument("--metrics-out", type=Path, default=None)
+    parser.add_argument("--metrics-every-steps", type=int, default=512)
     parser.add_argument("--pretrain-heuristic-samples", type=int, default=50_000)
     parser.add_argument("--pretrain-heuristic-epochs", type=int, default=10)
     parser.add_argument("--skip-heuristic-pretrain", action="store_true")
@@ -51,8 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device",
         choices=("auto", "cuda", "cpu"),
-        default="auto",
-        help="Training device. 'auto' prefers CUDA when PyTorch can see it.",
+        default="cuda",
+        help="Training device. Defaults to CUDA; use 'auto' or 'cpu' as fallback.",
     )
     return parser.parse_args()
 
@@ -162,6 +166,15 @@ def main() -> int:
             )
         )
 
+    if args.metrics_out is not None:
+        callbacks.append(
+            MetricsJsonlCallback(
+                path=args.metrics_out,
+                every_steps=args.metrics_every_steps,
+            )
+        )
+        print(f"Training metrics will be written to {args.metrics_out}")
+
     callback = CallbackList(callbacks) if callbacks else None
     try:
         model.learn(
@@ -225,6 +238,58 @@ def _delete_checkpoint_if_possible(path: Path) -> None:
         except PermissionError:
             time.sleep(0.1)
     print(f"Warning: could not delete old checkpoint because it is locked: {path}")
+
+
+class MetricsJsonlCallback(BaseCallback):
+    def __init__(self, *, path: Path, every_steps: int):
+        super().__init__()
+        self.path = path
+        self.every_steps = max(1, every_steps)
+        self._next_step = self.every_steps
+        self._start_wall_time = 0.0
+
+    def _on_training_start(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("", encoding="utf-8")
+        self._start_wall_time = time.monotonic()
+        self._write(event="start")
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps < self._next_step:
+            return True
+        while self._next_step <= self.num_timesteps:
+            self._next_step += self.every_steps
+        self._write(event="step")
+        return True
+
+    def _on_training_end(self) -> None:
+        self._write(event="end")
+
+    def _write(self, *, event: str) -> None:
+        payload: dict[str, float | int | str] = {
+            "event": event,
+            "num_timesteps": int(self.num_timesteps),
+            "elapsed_s": max(0.0, time.monotonic() - self._start_wall_time),
+        }
+        for key, value in self.logger.name_to_value.items():
+            number = _to_finite_float(value)
+            if number is not None:
+                payload[key] = number
+
+        with self.path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _to_finite_float(value: object) -> float | None:
+    if hasattr(value, "item"):
+        value = value.item()
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
 
 
 if __name__ == "__main__":
