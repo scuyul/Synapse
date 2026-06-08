@@ -5,6 +5,7 @@ import unittest
 from scripts.training_studio import (
     build_train_command,
     normalize_config,
+    preset_config,
     validate_launch_config,
 )
 
@@ -53,6 +54,18 @@ class TrainingStudioTests(unittest.TestCase):
     def test_invalid_device_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             normalize_config({"device": "metal"})
+
+    def test_smoke_preset_uses_short_cuda_run(self) -> None:
+        config = preset_config("smoke")
+
+        self.assertEqual(config["device"], "cuda")
+        self.assertEqual(config["timesteps"], 256)
+        self.assertFalse(config["heuristicPretrain"])
+        self.assertFalse(config["advantageScope"])
+
+    def test_unknown_preset_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            preset_config("missing")
 
     def test_cuda_launch_is_rejected_when_unavailable(self) -> None:
         config = normalize_config({"device": "cuda"})

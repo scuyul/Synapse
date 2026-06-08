@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import threading
@@ -41,6 +42,44 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "variedDefense": True,
     "metricsOut": "logs/training_studio_metrics.jsonl",
     "metricsEverySteps": 512,
+}
+
+STUDIO_DIR = REPO_ROOT / "logs" / "studio"
+SAVED_CONFIGS_PATH = STUDIO_DIR / "configs.json"
+RUNS_PATH = STUDIO_DIR / "runs.json"
+BEST_MODEL_PATH = STUDIO_DIR / "best_model.json"
+
+RUN_PRESETS: dict[str, dict[str, Any]] = {
+    "smoke": {
+        "timesteps": 256,
+        "modelOut": "models/studio_smoke",
+        "nEnvs": 2,
+        "nSteps": 64,
+        "batchSize": 128,
+        "checkpointEverySteps": 0,
+        "heuristicPretrain": False,
+        "advantageScope": False,
+        "metricsOut": "logs/studio/smoke_metrics.jsonl",
+        "metricsEverySteps": 64,
+    },
+    "full": {},
+    "resume": {
+        "resumeFrom": "models/reefscape_ppo_interrupted.zip",
+        "heuristicPretrain": False,
+        "modelOut": "models/reefscape_ppo_resumed",
+        "metricsOut": "logs/studio/resume_metrics.jsonl",
+    },
+    "evaluation": {
+        "timesteps": 1,
+        "modelOut": "models/evaluation_only",
+        "nEnvs": 1,
+        "nSteps": 2,
+        "batchSize": 2,
+        "checkpointEverySteps": 0,
+        "heuristicPretrain": False,
+        "advantageScope": False,
+        "metricsEverySteps": 1,
+    },
 }
 
 INT_FIELDS = {
@@ -140,6 +179,16 @@ def normalize_config(payload: dict[str, Any] | None) -> dict[str, Any]:
     return config
 
 
+def preset_config(name: str) -> dict[str, Any]:
+    if name not in RUN_PRESETS:
+        raise ValueError(f"unknown preset: {name}")
+    config = dict(DEFAULT_CONFIG)
+    config.update(RUN_PRESETS[name])
+    if name == "evaluation":
+        config["metricsOut"] = _default_metrics_path(prefix="evaluation")
+    return normalize_config(config)
+
+
 def validate_launch_config(
     config: dict[str, Any],
     compute_status: dict[str, Any] | None = None,
@@ -173,10 +222,47 @@ def get_compute_status() -> dict[str, Any]:
     return {
         "torchInstalled": True,
         "torchVersion": str(torch.__version__),
+        "torchCudaRuntime": str(torch.version.cuda),
         "cudaAvailable": cuda_available,
         "cudaDeviceCount": device_count,
         "cudaDeviceName": device_name,
         "error": "",
+    }
+
+
+def get_gpu_stats() -> dict[str, Any]:
+    if shutil.which("nvidia-smi") is None:
+        return {"available": False, "error": "nvidia-smi not found"}
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,driver_version",
+                "--format=csv,noheader,nounits",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"available": False, "error": str(exc)}
+    if result.returncode != 0:
+        return {"available": False, "error": result.stderr.strip()}
+    line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+    parts = [part.strip() for part in line.split(",")]
+    if len(parts) < 8:
+        return {"available": False, "error": "unexpected nvidia-smi output"}
+    return {
+        "available": True,
+        "name": parts[0],
+        "utilizationGpuPct": _safe_float(parts[1]),
+        "memoryUsedMiB": _safe_float(parts[2]),
+        "memoryTotalMiB": _safe_float(parts[3]),
+        "temperatureC": _safe_float(parts[4]),
+        "powerDrawW": _safe_float(parts[5]),
+        "powerLimitW": _safe_float(parts[6]),
+        "driverVersion": parts[7],
     }
 
 
@@ -243,12 +329,14 @@ class TrainingStudioState:
         self._metrics_path: Path | None = _resolve_repo_path(
             DEFAULT_CONFIG["metricsOut"]
         )
+        self._run_id: str | None = None
 
     def start_training(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         config = normalize_config(payload)
         validate_launch_config(config)
         cmd = build_train_command(config)
         metrics_path = _resolve_repo_path(config["metricsOut"])
+        run_id = time.strftime("%Y%m%d_%H%M%S")
         env = dict(os.environ)
         env["PYTHONUNBUFFERED"] = "1"
         creationflags = (
@@ -266,6 +354,20 @@ class TrainingStudioState:
             self._return_code = None
             self._last_config = config
             self._metrics_path = metrics_path
+            self._run_id = run_id
+            _record_run(
+                {
+                    "id": run_id,
+                    "kind": "training",
+                    "startedAt": self._started_at,
+                    "finishedAt": None,
+                    "returnCode": None,
+                    "config": config,
+                    "command": cmd,
+                    "metricsPath": _repo_relative(metrics_path),
+                    "modelOut": config["modelOut"],
+                }
+            )
             self._process = subprocess.Popen(
                 cmd,
                 cwd=REPO_ROOT,
@@ -292,15 +394,59 @@ class TrainingStudioState:
         ).start()
         return self.status()
 
-    def stop_training(self) -> dict[str, Any]:
+    def start_artifact_process(self, payload: dict[str, Any]) -> dict[str, Any]:
+        action = str(payload.get("action", "")).strip()
+        path = _safe_artifact_path(payload.get("path", ""))
+        cmd = _build_artifact_process(action, path)
+        env = dict(os.environ)
+        env["PYTHONUNBUFFERED"] = "1"
+        creationflags = (
+            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        )
+        with self._lock:
+            if self._process is not None and self._process.poll() is None:
+                raise RuntimeError("another process is already running")
+            self._logs.clear()
+            self._logs.append("$ " + " ".join(cmd))
+            self._command = cmd
+            self._started_at = time.time()
+            self._finished_at = None
+            self._return_code = None
+            self._last_config = dict(DEFAULT_CONFIG)
+            self._metrics_path = None
+            self._run_id = None
+            self._process = subprocess.Popen(
+                cmd,
+                cwd=REPO_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                env=env,
+                creationflags=creationflags,
+            )
+            process = self._process
+        threading.Thread(target=self._read_output, args=(process,), daemon=True).start()
+        threading.Thread(target=self._monitor_process, args=(process,), daemon=True).start()
+        return self.status()
+
+    def stop_training(self, *, mode: str = "graceful") -> dict[str, Any]:
         process: subprocess.Popen[str] | None = None
         with self._lock:
             candidate = self._process
             if candidate is not None and candidate.poll() is None:
                 process = candidate
-                self._logs.append("Stopping training...")
+                self._logs.append(f"Stopping training ({mode})...")
 
         if process is None:
+            return self.status()
+        if mode == "kill":
+            try:
+                process.kill()
+            except OSError:
+                pass
             return self.status()
         try:
             if os.name == "nt":
@@ -341,8 +487,12 @@ class TrainingStudioState:
             }
 
         payload["compute"] = get_compute_status()
+        payload["gpu"] = get_gpu_stats()
         payload["metrics"] = _read_metrics(metrics_path)
         payload["artifacts"] = _list_artifacts()
+        payload["runs"] = _list_runs()
+        payload["savedConfigs"] = _list_saved_configs()
+        payload["presets"] = sorted(RUN_PRESETS)
         return payload
 
     def _read_output(self, process: subprocess.Popen[str]) -> None:
@@ -360,6 +510,8 @@ class TrainingStudioState:
                 self._return_code = int(return_code)
                 self._finished_at = time.time()
                 self._logs.append(f"Training process exited with code {return_code}.")
+                if self._run_id is not None:
+                    _finish_run(self._run_id, self._finished_at, int(return_code))
 
 
 class TrainingStudioServer(ThreadingHTTPServer):
@@ -381,7 +533,16 @@ class TrainingStudioHandler(BaseHTTPRequestHandler):
         if path == "/":
             self._send_text(INDEX_HTML, "text/html; charset=utf-8")
         elif path == "/api/defaults":
-            self._send_json({"config": DEFAULT_CONFIG, "compute": get_compute_status()})
+            self._send_json(
+                {
+                    "config": DEFAULT_CONFIG,
+                    "compute": get_compute_status(),
+                    "gpu": get_gpu_stats(),
+                    "presets": sorted(RUN_PRESETS),
+                    "savedConfigs": _list_saved_configs(),
+                    "runs": _list_runs(),
+                }
+            )
         elif path == "/api/status":
             self._send_json(self.server.state.status())
         else:
@@ -394,7 +555,40 @@ class TrainingStudioHandler(BaseHTTPRequestHandler):
             if path == "/api/start":
                 self._send_json(self.server.state.start_training(payload))
             elif path == "/api/stop":
-                self._send_json(self.server.state.stop_training())
+                self._send_json(
+                    self.server.state.stop_training(
+                        mode=str(payload.get("mode", "graceful"))
+                    )
+                )
+            elif path == "/api/preset":
+                self._send_json({"config": preset_config(str(payload.get("name", "")))})
+            elif path == "/api/config/save":
+                config = normalize_config(payload.get("config", {}))
+                self._send_json(
+                    {
+                        "savedConfigs": _save_config(
+                            str(payload.get("name", "")),
+                            config,
+                        )
+                    }
+                )
+            elif path == "/api/config/delete":
+                self._send_json(
+                    {"savedConfigs": _delete_config(str(payload.get("name", "")))}
+                )
+            elif path == "/api/run/duplicate":
+                self._send_json(
+                    {"config": _config_from_run(str(payload.get("id", "")))}
+                )
+            elif path == "/api/compare":
+                run_ids = payload.get("runIds", [])
+                if not isinstance(run_ids, list):
+                    raise ValueError("runIds must be a list")
+                self._send_json({"runs": _read_comparison([str(item) for item in run_ids])})
+            elif path == "/api/artifact/process":
+                self._send_json(self.server.state.start_artifact_process(payload))
+            elif path == "/api/artifact/action":
+                self._send_json(_artifact_action(payload))
             else:
                 self.send_error(404)
         except (RuntimeError, ValueError) as exc:
@@ -443,9 +637,9 @@ def _coerce_float(key: str, value: object) -> float:
         raise ValueError(f"{key} must be a number") from exc
 
 
-def _default_metrics_path() -> str:
+def _default_metrics_path(*, prefix: str = "training_studio_metrics") -> str:
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    return f"logs/training_studio_metrics_{stamp}.jsonl"
+    return f"logs/studio/{prefix}_{stamp}.jsonl"
 
 
 def _resolve_repo_path(value: str | Path) -> Path:
@@ -479,8 +673,109 @@ def _read_metrics(path: Path | None, *, limit: int = 1_000) -> list[dict[str, An
     return metrics
 
 
+def _load_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _list_saved_configs() -> list[dict[str, Any]]:
+    configs = _load_json(SAVED_CONFIGS_PATH, [])
+    if not isinstance(configs, list):
+        return []
+    return [
+        item
+        for item in configs
+        if isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and isinstance(item.get("config"), dict)
+    ]
+
+
+def _save_config(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("config name is required")
+    configs = [item for item in _list_saved_configs() if item.get("name") != clean_name]
+    configs.insert(
+        0,
+        {
+            "name": clean_name,
+            "savedAt": time.time(),
+            "config": normalize_config(config),
+        },
+    )
+    _write_json(SAVED_CONFIGS_PATH, configs[:50])
+    return configs[:50]
+
+
+def _delete_config(name: str) -> list[dict[str, Any]]:
+    configs = [item for item in _list_saved_configs() if item.get("name") != name]
+    _write_json(SAVED_CONFIGS_PATH, configs)
+    return configs
+
+
+def _list_runs() -> list[dict[str, Any]]:
+    runs = _load_json(RUNS_PATH, [])
+    return runs if isinstance(runs, list) else []
+
+
+def _record_run(run: dict[str, Any]) -> None:
+    runs = [item for item in _list_runs() if item.get("id") != run["id"]]
+    runs.insert(0, run)
+    _write_json(RUNS_PATH, runs[:100])
+
+
+def _finish_run(run_id: str, finished_at: float, return_code: int) -> None:
+    runs = _list_runs()
+    for run in runs:
+        if run.get("id") == run_id:
+            run["finishedAt"] = finished_at
+            run["returnCode"] = return_code
+            break
+    _write_json(RUNS_PATH, runs[:100])
+
+
+def _config_from_run(run_id: str) -> dict[str, Any]:
+    for run in _list_runs():
+        if run.get("id") == run_id:
+            config = dict(run.get("config", {}))
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            config["modelOut"] = f"{config.get('modelOut', 'models/reefscape_ppo')}_copy_{stamp}"
+            config["metricsOut"] = f"logs/studio/duplicate_{stamp}.jsonl"
+            return normalize_config(config)
+    raise ValueError(f"run not found: {run_id}")
+
+
+def _read_comparison(run_ids: list[str]) -> list[dict[str, Any]]:
+    runs_by_id = {run.get("id"): run for run in _list_runs()}
+    comparisons = []
+    for run_id in run_ids[:4]:
+        run = runs_by_id.get(run_id)
+        if not run:
+            continue
+        metrics_path = _resolve_repo_path(run.get("metricsPath", ""))
+        comparisons.append(
+            {
+                "id": run_id,
+                "label": run.get("modelOut") or run_id,
+                "metrics": _read_metrics(metrics_path, limit=2_000),
+            }
+        )
+    return comparisons
+
+
 def _list_artifacts() -> list[dict[str, Any]]:
     model_root = REPO_ROOT / "models"
+    best_model = _load_json(BEST_MODEL_PATH, {})
     if not model_root.exists():
         return []
     artifacts = []
@@ -494,10 +789,87 @@ def _list_artifacts() -> list[dict[str, Any]]:
                 "path": str(path.relative_to(REPO_ROOT)),
                 "sizeBytes": stat.st_size,
                 "modifiedAt": stat.st_mtime,
+                "best": best_model.get("path") == str(path.relative_to(REPO_ROOT)),
             }
         )
     artifacts.sort(key=lambda item: item["modifiedAt"], reverse=True)
     return artifacts[:20]
+
+
+def _artifact_action(payload: dict[str, Any]) -> dict[str, Any]:
+    action = str(payload.get("action", "")).strip()
+    path = _safe_artifact_path(payload.get("path", ""))
+    if action == "delete":
+        path.unlink()
+        return {"artifacts": _list_artifacts()}
+    if action == "rename":
+        new_name = str(payload.get("newName", "")).strip()
+        if not new_name:
+            raise ValueError("newName is required")
+        target = path.with_name(new_name if new_name.endswith(".zip") else f"{new_name}.zip")
+        _ensure_within_models(target)
+        path.rename(target)
+        return {"artifacts": _list_artifacts(), "path": _repo_relative(target)}
+    if action == "markBest":
+        _write_json(BEST_MODEL_PATH, {"path": _repo_relative(path), "markedAt": time.time()})
+        return {"artifacts": _list_artifacts()}
+    raise ValueError(f"unknown artifact action: {action}")
+
+
+def _build_artifact_process(action: str, path: Path) -> list[str]:
+    if action == "evaluate":
+        return [
+            PYTHON,
+            "scripts/evaluate_model.py",
+            "--model",
+            _repo_relative(path),
+            "--episodes",
+            "5",
+            "--fixed-start",
+            "--deterministic",
+        ]
+    if action == "replay":
+        return [
+            PYTHON,
+            "scripts/run_trained_model.py",
+            "--model",
+            _repo_relative(path),
+            "--fixed-start",
+            "--loop",
+            "--mental-visualizer",
+        ]
+    raise ValueError(f"unknown artifact process action: {action}")
+
+
+def _safe_artifact_path(value: object) -> Path:
+    path = _resolve_repo_path(str(value))
+    _ensure_within_models(path)
+    if not path.exists():
+        raise ValueError(f"model not found: {_repo_relative(path)}")
+    if path.suffix.lower() != ".zip":
+        raise ValueError("artifact must be a .zip model")
+    return path
+
+
+def _ensure_within_models(path: Path) -> None:
+    root = (REPO_ROOT / "models").resolve()
+    resolved = path.resolve()
+    if root not in (resolved, *resolved.parents):
+        raise ValueError("artifact path must stay inside models/")
+
+
+def _repo_relative(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -611,6 +983,27 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       gap: 8px;
     }
+    .miniPanel {
+      display: grid;
+      gap: 6px;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      font-size: 12px;
+    }
+    .progress {
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #dfe8e3;
+    }
+    .progress > div {
+      width: 0%;
+      height: 100%;
+      background: var(--accent);
+    }
     main {
       min-width: 0;
       padding: 18px;
@@ -688,6 +1081,19 @@ INDEX_HTML = r"""<!doctype html>
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfb;
+    }
+    .toolbar select,
+    .toolbar input {
+      width: auto;
+      min-width: 140px;
+    }
     label {
       display: grid;
       gap: 5px;
@@ -753,6 +1159,29 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 8px;
       background: #ffffff;
     }
+    .metricGrid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 10px 12px;
+    }
+    .metricMini {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .metricMini h3 {
+      margin: 0;
+      padding: 7px 9px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .metricMini canvas {
+      width: 100%;
+      height: 130px;
+    }
     .kpis {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -811,6 +1240,16 @@ INDEX_HTML = r"""<!doctype html>
       background: #fbfcfb;
       font-size: 12px;
     }
+    .artifactActions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 4px;
+    }
+    .artifactActions button {
+      padding: 4px 7px;
+      font-size: 11px;
+    }
     .artifact strong {
       overflow-wrap: anywhere;
     }
@@ -864,8 +1303,22 @@ INDEX_HTML = r"""<!doctype html>
           <span>Compute</span>
           <strong id="computeValue">Checking</strong>
         </div>
+        <div class="progress"><div id="progressFill"></div></div>
+        <div class="statusRow">
+          <span>Progress</span>
+          <strong id="progressValue">0%</strong>
+        </div>
+        <div class="miniPanel">
+          <strong>GPU</strong>
+          <span id="gpuValue">-</span>
+          <span id="cudaHealth">CUDA health pending</span>
+        </div>
         <div class="sideActions">
           <button id="startButton" class="primary" type="button">Start</button>
+          <select id="stopMode">
+            <option value="graceful">graceful stop</option>
+            <option value="kill">hard kill</option>
+          </select>
           <button id="stopButton" class="danger" type="button" disabled>Stop</button>
         </div>
       </div>
@@ -884,6 +1337,20 @@ INDEX_HTML = r"""<!doctype html>
           <div class="panelHeader">
             <h2>Settings</h2>
             <button id="resetButton" type="button">Reset</button>
+          </div>
+          <div class="toolbar">
+            <select id="presetSelect">
+              <option value="smoke">smoke test</option>
+              <option value="full">full train</option>
+              <option value="resume">resume train</option>
+              <option value="evaluation">evaluation-only</option>
+            </select>
+            <button id="applyPresetButton" type="button">Apply preset</button>
+            <input id="configName" type="text" placeholder="config name">
+            <button id="saveConfigButton" type="button">Save config</button>
+            <select id="savedConfigSelect"></select>
+            <button id="loadConfigButton" type="button">Load</button>
+            <button id="deleteConfigButton" type="button">Delete</button>
           </div>
           <form id="settingsForm" class="settings">
             <fieldset>
@@ -991,6 +1458,19 @@ INDEX_HTML = r"""<!doctype html>
               <h2>Metrics</h2>
               <span id="metricCount">0 points</span>
             </div>
+            <div class="toolbar">
+              <select id="metricSelect"></select>
+              <label>Zoom
+                <input id="zoomInput" type="range" min="0.5" max="4" step="0.25" value="1">
+              </label>
+              <label>Smoothing
+                <input id="smoothInput" type="range" min="1" max="25" step="1" value="1">
+              </label>
+              <button id="resetGraphButton" type="button">Reset view</button>
+              <select id="compareRunSelect" multiple></select>
+              <button id="duplicateRunButton" type="button">Duplicate run</button>
+              <button id="compareButton" type="button">Compare</button>
+            </div>
             <div class="kpis">
               <div class="kpi"><span>Steps</span><strong id="kpiSteps">0</strong></div>
               <div class="kpi"><span>Loss</span><strong id="kpiLoss">-</strong></div>
@@ -1002,6 +1482,7 @@ INDEX_HTML = r"""<!doctype html>
                 <canvas id="lossCanvas"></canvas>
               </div>
             </div>
+            <div id="metricGrid" class="metricGrid"></div>
           </section>
           <div class="lower">
             <section class="panel">
@@ -1031,13 +1512,25 @@ INDEX_HTML = r"""<!doctype html>
       "vizPreviewSteps", "metricsEverySteps"
     ]);
     const checkboxKeys = new Set(["heuristicPretrain", "advantageScope", "variedDefense"]);
+    const metricDefs = [
+      {key: "train/loss", label: "Loss", color: "#2f7d5c"},
+      {key: "rollout/ep_rew_mean", label: "Reward", color: "#3c6e91"},
+      {key: "train/value_loss", label: "Value loss", color: "#7456a6"},
+      {key: "train/approx_kl", label: "KL", color: "#b77b1d"},
+      {key: "train/entropy_loss", label: "Entropy", color: "#9b4d57"},
+      {key: "time/fps", label: "FPS", color: "#4f7f87"},
+      {key: "sim/latest_other_robot_hits", label: "Collisions", color: "#b5473f"},
+      {key: "sim/latest_scored_coral", label: "Scored coral", color: "#476f3f"}
+    ];
     let defaults = {};
     let lastLogLength = 0;
+    let comparisonRuns = [];
 
     const form = document.getElementById("settingsForm");
     const startButton = document.getElementById("startButton");
     const stopButton = document.getElementById("stopButton");
     const resetButton = document.getElementById("resetButton");
+    const stopMode = document.getElementById("stopMode");
     const errorBox = document.getElementById("errorBox");
     let computeStatus = null;
     let lastMetricCount = 0;
@@ -1092,6 +1585,10 @@ INDEX_HTML = r"""<!doctype html>
       computeStatus = data.compute;
       fillForm(defaults);
       renderCompute(computeStatus);
+      renderGpu(data.gpu);
+      renderSavedConfigs(data.savedConfigs || []);
+      renderRuns(data.runs || []);
+      initializeMetricControls();
     }
 
     async function startTraining() {
@@ -1110,7 +1607,10 @@ INDEX_HTML = r"""<!doctype html>
     async function stopTraining() {
       setError("");
       try {
-        await api("/api/stop", {method: "POST", body: "{}"});
+        await api("/api/stop", {
+          method: "POST",
+          body: JSON.stringify({mode: stopMode.value})
+        });
         await refresh();
       } catch (error) {
         setError(error.message);
@@ -1141,6 +1641,8 @@ INDEX_HTML = r"""<!doctype html>
         computeStatus = status.compute;
         renderCompute(computeStatus);
       }
+      renderGpu(status.gpu);
+      renderProgress(status);
 
       const logs = status.logs || [];
       const logOutput = document.getElementById("logOutput");
@@ -1160,7 +1662,10 @@ INDEX_HTML = r"""<!doctype html>
         document.getElementById("chartScroll")
       );
       lastMetricCount = metrics.length;
+      renderMetricGrid(metrics);
       renderArtifacts(status.artifacts || []);
+      renderSavedConfigs(status.savedConfigs || []);
+      renderRuns(status.runs || []);
     }
 
     function renderCompute(compute) {
@@ -1180,6 +1685,38 @@ INDEX_HTML = r"""<!doctype html>
         value.title = compute.torchVersion + " cannot see CUDA";
         if (cudaOption) cudaOption.disabled = false;
       }
+    }
+
+    function renderGpu(gpu) {
+      const gpuValue = document.getElementById("gpuValue");
+      const health = document.getElementById("cudaHealth");
+      if (!gpu || !gpu.available) {
+        gpuValue.textContent = "GPU stats unavailable";
+      } else {
+        gpuValue.textContent =
+          `${gpu.name}: ${gpu.utilizationGpuPct ?? 0}% GPU, ` +
+          `${gpu.memoryUsedMiB ?? 0}/${gpu.memoryTotalMiB ?? 0} MiB, ` +
+          `${gpu.temperatureC ?? 0}C, ${gpu.powerDrawW ?? 0}/${gpu.powerLimitW ?? 0} W`;
+      }
+      if (computeStatus && computeStatus.cudaAvailable) {
+        health.textContent =
+          `CUDA OK: torch ${computeStatus.torchVersion}, runtime ` +
+          `${computeStatus.torchCudaRuntime}, ${computeStatus.cudaDeviceName}`;
+      } else if (computeStatus && computeStatus.torchInstalled) {
+        health.textContent = `CUDA unavailable to torch ${computeStatus.torchVersion}`;
+      } else {
+        health.textContent = "PyTorch is not installed";
+      }
+    }
+
+    function renderProgress(status) {
+      const total = Number(status.config?.timesteps || 0);
+      const latest = (status.metrics || []).length ? status.metrics[status.metrics.length - 1] : {};
+      const steps = Number(latest.num_timesteps || 0);
+      const pct = total > 0 ? Math.max(0, Math.min(100, (steps / total) * 100)) : 0;
+      document.getElementById("progressFill").style.width = pct.toFixed(1) + "%";
+      document.getElementById("progressValue").textContent =
+        total > 0 ? `${pct.toFixed(1)}%` : "until stopped";
     }
 
     function renderKpis(metrics) {
@@ -1207,11 +1744,153 @@ INDEX_HTML = r"""<!doctype html>
         const name = document.createElement("strong");
         name.textContent = item.path;
         const meta = document.createElement("span");
-        meta.textContent = formatBytes(item.sizeBytes) + "  " + new Date(item.modifiedAt * 1000).toLocaleString();
+        meta.textContent = (item.best ? "BEST  " : "") + formatBytes(item.sizeBytes) + "  " + new Date(item.modifiedAt * 1000).toLocaleString();
+        const actions = document.createElement("div");
+        actions.className = "artifactActions";
+        [
+          ["Evaluate", () => startArtifactProcess("evaluate", item.path)],
+          ["Replay", () => startArtifactProcess("replay", item.path)],
+          ["Rename", () => renameArtifact(item.path)],
+          ["Delete", () => artifactAction("delete", item.path)],
+          ["Best", () => artifactAction("markBest", item.path)]
+        ].forEach(([label, handler]) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = label;
+          button.addEventListener("click", handler);
+          actions.appendChild(button);
+        });
         div.appendChild(name);
         div.appendChild(meta);
+        div.appendChild(actions);
         root.appendChild(div);
       });
+    }
+
+    async function startArtifactProcess(action, path) {
+      setError("");
+      try {
+        await api("/api/artifact/process", {
+          method: "POST",
+          body: JSON.stringify({action, path})
+        });
+        await refresh();
+      } catch (error) {
+        setError(error.message);
+      }
+    }
+
+    async function artifactAction(action, path, extra = {}) {
+      setError("");
+      try {
+        await api("/api/artifact/action", {
+          method: "POST",
+          body: JSON.stringify({action, path, ...extra})
+        });
+        await refresh();
+      } catch (error) {
+        setError(error.message);
+      }
+    }
+
+    async function renameArtifact(path) {
+      const current = path.split(/[\\/]/).pop()?.replace(/\.zip$/, "") || "model";
+      const newName = window.prompt("New model file name", current);
+      if (!newName) return;
+      await artifactAction("rename", path, {newName});
+    }
+
+    function initializeMetricControls() {
+      const metricSelect = document.getElementById("metricSelect");
+      metricSelect.innerHTML = "";
+      metricDefs.forEach((metric) => {
+        const option = document.createElement("option");
+        option.value = metric.key;
+        option.textContent = metric.label;
+        metricSelect.appendChild(option);
+      });
+    }
+
+    function renderSavedConfigs(configs) {
+      const select = document.getElementById("savedConfigSelect");
+      const current = select.value;
+      select.innerHTML = "";
+      configs.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.name;
+        option.textContent = item.name;
+        option._config = item.config;
+        select.appendChild(option);
+      });
+      select.value = current;
+    }
+
+    function renderRuns(runs) {
+      const select = document.getElementById("compareRunSelect");
+      const selected = new Set([...select.selectedOptions].map((option) => option.value));
+      select.innerHTML = "";
+      runs.forEach((run) => {
+        const option = document.createElement("option");
+        option.value = run.id;
+        option.textContent = `${run.id} ${run.modelOut || ""}`;
+        option.selected = selected.has(run.id);
+        select.appendChild(option);
+      });
+    }
+
+    async function applyPreset() {
+      const name = document.getElementById("presetSelect").value;
+      const data = await api("/api/preset", {
+        method: "POST",
+        body: JSON.stringify({name})
+      });
+      fillForm(data.config);
+    }
+
+    async function saveCurrentConfig() {
+      const name = document.getElementById("configName").value;
+      const data = await api("/api/config/save", {
+        method: "POST",
+        body: JSON.stringify({name, config: readForm()})
+      });
+      renderSavedConfigs(data.savedConfigs || []);
+    }
+
+    async function deleteCurrentConfig() {
+      const name = document.getElementById("savedConfigSelect").value;
+      if (!name) return;
+      const data = await api("/api/config/delete", {
+        method: "POST",
+        body: JSON.stringify({name})
+      });
+      renderSavedConfigs(data.savedConfigs || []);
+    }
+
+    function loadCurrentConfig() {
+      const select = document.getElementById("savedConfigSelect");
+      const selected = select.selectedOptions[0];
+      if (selected && selected._config) fillForm(selected._config);
+    }
+
+    async function compareSelectedRuns() {
+      const runIds = [...document.getElementById("compareRunSelect").selectedOptions]
+        .map((option) => option.value);
+      const data = await api("/api/compare", {
+        method: "POST",
+        body: JSON.stringify({runIds})
+      });
+      comparisonRuns = data.runs || [];
+      await refresh();
+    }
+
+    async function duplicateSelectedRun() {
+      const selected = document.getElementById("compareRunSelect").selectedOptions[0];
+      if (!selected) return;
+      const data = await api("/api/run/duplicate", {
+        method: "POST",
+        body: JSON.stringify({id: selected.value})
+      });
+      fillForm(data.config);
     }
 
     function drawMetricChart(canvas, metrics, scroller) {
@@ -1235,16 +1914,27 @@ INDEX_HTML = r"""<!doctype html>
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, width, height);
 
+      const selectedKey = document.getElementById("metricSelect").value || "train/loss";
+      const selectedMetric = metricDefs.find((metric) => metric.key === selectedKey) || metricDefs[0];
+      const smoothWindow = Number(document.getElementById("smoothInput").value || 1);
       const series = [
-        {key: "train/loss", label: "loss", color: "#2f7d5c"},
-        {key: "train/value_loss", label: "value", color: "#7456a6"},
-        {key: "train/policy_gradient_loss", label: "policy", color: "#b77b1d"},
-        {key: "rollout/ep_rew_mean", label: "reward", color: "#3c6e91"}
+        {
+          key: selectedMetric.key,
+          label: selectedMetric.label,
+          color: selectedMetric.color,
+          metrics,
+        },
+        ...comparisonRuns.map((run, index) => ({
+          key: selectedMetric.key,
+          label: run.label || run.id,
+          color: ["#7456a6", "#b77b1d", "#b5473f", "#4f7f87"][index % 4],
+          metrics: run.metrics || [],
+        }))
       ].map((spec) => ({
         ...spec,
-        points: metrics
+        points: smoothPoints(spec.metrics
           .filter((row) => Number.isFinite(Number(row.num_timesteps)) && Number.isFinite(Number(row[spec.key])))
-          .map((row) => ({x: Number(row.num_timesteps), y: Number(row[spec.key])}))
+          .map((row) => ({x: Number(row.num_timesteps), y: Number(row[spec.key])})), smoothWindow)
       })).filter((item) => item.points.length > 1);
 
       drawGrid(ctx, width, height);
@@ -1303,15 +1993,98 @@ INDEX_HTML = r"""<!doctype html>
       }
     }
 
+    function renderMetricGrid(metrics) {
+      const root = document.getElementById("metricGrid");
+      if (!root.dataset.ready) {
+        root.innerHTML = "";
+        metricDefs.forEach((metric) => {
+          const card = document.createElement("div");
+          card.className = "metricMini";
+          const title = document.createElement("h3");
+          title.textContent = metric.label;
+          const canvas = document.createElement("canvas");
+          canvas.dataset.metric = metric.key;
+          card.appendChild(title);
+          card.appendChild(canvas);
+          root.appendChild(card);
+        });
+        root.dataset.ready = "true";
+      }
+      root.querySelectorAll("canvas").forEach((canvas) => {
+        const metric = metricDefs.find((item) => item.key === canvas.dataset.metric);
+        if (metric) drawMiniMetric(canvas, metrics, metric);
+      });
+    }
+
+    function drawMiniMetric(canvas, metrics, metric) {
+      const rect = canvas.getBoundingClientRect();
+      const cssWidth = Math.max(220, Math.floor(rect.width || 360));
+      const cssHeight = 130;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(cssWidth * ratio);
+      canvas.height = Math.floor(cssHeight * ratio);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
+      const points = metrics
+        .filter((row) => Number.isFinite(Number(row.num_timesteps)) && Number.isFinite(Number(row[metric.key])))
+        .map((row) => ({x: Number(row.num_timesteps), y: Number(row[metric.key])}));
+      if (points.length < 2) {
+        ctx.fillStyle = "#66736d";
+        ctx.font = "12px Segoe UI, sans-serif";
+        ctx.fillText("waiting", 12, 24);
+        return;
+      }
+      const minX = Math.min(...points.map((point) => point.x));
+      const maxX = Math.max(...points.map((point) => point.x));
+      const minY = Math.min(...points.map((point) => point.y));
+      const maxY = Math.max(...points.map((point) => point.y));
+      const pad = {left: 38, right: 10, top: 10, bottom: 24};
+      const plotW = cssWidth - pad.left - pad.right;
+      const plotH = cssHeight - pad.top - pad.bottom;
+      const xSpan = Math.max(1, maxX - minX);
+      const ySpan = Math.max(1e-9, maxY - minY);
+      ctx.strokeStyle = "#edf2ef";
+      ctx.strokeRect(pad.left, pad.top, plotW, plotH);
+      ctx.beginPath();
+      decimatePoints(points, plotW).forEach((point, index) => {
+        const x = pad.left + ((point.x - minX) / xSpan) * plotW;
+        const y = pad.top + plotH - ((point.y - minY) / ySpan) * plotH;
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = metric.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = "#66736d";
+      ctx.font = "11px Segoe UI, sans-serif";
+      ctx.fillText(formatMetric(maxY), 4, 18);
+      ctx.fillText(formatMetric(minY), 4, cssHeight - 28);
+    }
+
     function chartWidthFor(pointCount) {
       const visibleWidth = document.getElementById("chartScroll")?.clientWidth || 900;
       const count = Math.max(1, Number(pointCount || 0));
-      let pxPerPoint = 14;
+      const zoom = Number(document.getElementById("zoomInput")?.value || 1);
+      let pxPerPoint = 14 * zoom;
       if (count > 80) pxPerPoint = 9;
       if (count > 250) pxPerPoint = 5;
       if (count > 900) pxPerPoint = 2.5;
       if (count > 2500) pxPerPoint = 1.4;
       return Math.min(16000, Math.max(visibleWidth, 860, Math.ceil(count * pxPerPoint)));
+    }
+
+    function smoothPoints(points, windowSize) {
+      const size = Math.max(1, Math.floor(windowSize));
+      if (size <= 1 || points.length <= 2) return points;
+      return points.map((point, index) => {
+        const start = Math.max(0, index - size + 1);
+        const slice = points.slice(start, index + 1);
+        const mean = slice.reduce((sum, item) => sum + item.y, 0) / slice.length;
+        return {x: point.x, y: mean};
+      });
     }
 
     function decimatePoints(points, plotWidth) {
@@ -1382,6 +2155,22 @@ INDEX_HTML = r"""<!doctype html>
     startButton.addEventListener("click", startTraining);
     stopButton.addEventListener("click", stopTraining);
     resetButton.addEventListener("click", () => fillForm(defaults));
+    document.getElementById("applyPresetButton").addEventListener("click", () => applyPreset().catch((error) => setError(error.message)));
+    document.getElementById("saveConfigButton").addEventListener("click", () => saveCurrentConfig().catch((error) => setError(error.message)));
+    document.getElementById("loadConfigButton").addEventListener("click", loadCurrentConfig);
+    document.getElementById("deleteConfigButton").addEventListener("click", () => deleteCurrentConfig().catch((error) => setError(error.message)));
+    document.getElementById("compareButton").addEventListener("click", () => compareSelectedRuns().catch((error) => setError(error.message)));
+    document.getElementById("duplicateRunButton").addEventListener("click", () => duplicateSelectedRun().catch((error) => setError(error.message)));
+    document.getElementById("resetGraphButton").addEventListener("click", () => {
+      comparisonRuns = [];
+      document.getElementById("zoomInput").value = 1;
+      document.getElementById("smoothInput").value = 1;
+      document.getElementById("chartScroll").scrollLeft = 0;
+      refresh();
+    });
+    document.getElementById("metricSelect").addEventListener("change", refresh);
+    document.getElementById("zoomInput").addEventListener("input", refresh);
+    document.getElementById("smoothInput").addEventListener("input", refresh);
     loadDefaults().then(refresh);
     setInterval(refresh, 1000);
   </script>

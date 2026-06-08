@@ -247,6 +247,11 @@ class MetricsJsonlCallback(BaseCallback):
         self.every_steps = max(1, every_steps)
         self._next_step = self.every_steps
         self._start_wall_time = 0.0
+        self._latest_episode_reward: float | None = None
+        self._latest_scored_coral: int | None = None
+        self._latest_other_robot_hits: int | None = None
+        self._latest_other_robot_hard_hits: int | None = None
+        self._latest_frozen_time_s: float | None = None
 
     def _on_training_start(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +260,7 @@ class MetricsJsonlCallback(BaseCallback):
         self._write(event="start")
 
     def _on_step(self) -> bool:
+        self._capture_infos()
         if self.num_timesteps < self._next_step:
             return True
         while self._next_step <= self.num_timesteps:
@@ -275,9 +281,39 @@ class MetricsJsonlCallback(BaseCallback):
             number = _to_finite_float(value)
             if number is not None:
                 payload[key] = number
+        extras = {
+            "sim/latest_episode_reward": self._latest_episode_reward,
+            "sim/latest_scored_coral": self._latest_scored_coral,
+            "sim/latest_other_robot_hits": self._latest_other_robot_hits,
+            "sim/latest_other_robot_hard_hits": self._latest_other_robot_hard_hits,
+            "sim/latest_frozen_time_s": self._latest_frozen_time_s,
+        }
+        for key, value in extras.items():
+            if value is not None:
+                payload[key] = value
 
         with self.path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, sort_keys=True) + "\n")
+
+    def _capture_infos(self) -> None:
+        infos = self.locals.get("infos", ())
+        for info in infos:
+            if not isinstance(info, dict):
+                continue
+            episode = info.get("episode")
+            if isinstance(episode, dict):
+                reward = _to_finite_float(episode.get("r"))
+                if reward is not None:
+                    self._latest_episode_reward = reward
+            if "scored_coral" in info:
+                self._latest_scored_coral = int(info["scored_coral"])
+            if "other_robot_hits" in info:
+                self._latest_other_robot_hits = int(info["other_robot_hits"])
+            if "other_robot_hard_hits" in info:
+                self._latest_other_robot_hard_hits = int(info["other_robot_hard_hits"])
+            frozen_time = _to_finite_float(info.get("frozen_time_s"))
+            if frozen_time is not None:
+                self._latest_frozen_time_s = frozen_time
 
 
 def _to_finite_float(value: object) -> float | None:

@@ -6,17 +6,49 @@ build-backend = "setuptools.build_meta"
 name = "reefscape-rl"
 version = "0.1.0"
 description = "Simplified REEFSCAPE RL simulator with AdvantageScope-friendly logging."
+readme = "README.md"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Scuyul" },
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Education",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = []
 
 [project.optional-dependencies]
 rl = [
-  "gymnasium>=0.29",
-  "stable-baselines3>=2.3",
+  "numpy==2.4.4",
+  "gymnasium==1.2.2",
+  "stable-baselines3==2.8.0",
+  "torch==2.11.0+cu130",
 ]
 viz = [
-  "robotpy>=2026.2.2",
+  "robotpy==2026.2.2",
 ]
+input = [
+  "pygame==2.6.1",
+]
+all = [
+  "numpy==2.4.4",
+  "gymnasium==1.2.2",
+  "stable-baselines3==2.8.0",
+  "torch==2.11.0+cu130",
+  "robotpy==2026.2.2",
+  "pygame==2.6.1",
+]
+
+[project.scripts]
+reefscape-doctor = "reefscape_rl.doctor:main"
 
 [tool.setuptools.packages.find]
 include = ["reefscape_rl*"]

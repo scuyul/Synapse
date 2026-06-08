@@ -1,9 +1,11 @@
-# Pinned project/runtime dependencies for the local REEFSCAPE RL demo environment.
+# Pinned CUDA runtime dependencies for the REEFSCAPE RL training environment.
+# CPU-only installs are possible by replacing the torch line with a CPU wheel,
+# but CUDA is the expected/default path for this project.
 --extra-index-url https://download.pytorch.org/whl/cu130
 
 numpy==2.4.4
-gymnasium==1.0.0
-stable-baselines3==2.4.0
+gymnasium==1.2.2
+stable-baselines3==2.8.0
 torch==2.11.0+cu130
 robotpy==2026.2.2
 pygame==2.6.1

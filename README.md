@@ -14,10 +14,23 @@ The current simulator is intentionally small:
 
 ## Quick Start
 
+Prerequisites:
+
+- Windows with Python 3.11 or newer.
+- An NVIDIA GPU/driver for CUDA training. This project defaults to CUDA and uses CPU only as a fallback.
+- AdvantageScope is optional but recommended for live field visualization.
+
+Create a local virtual environment and install the pinned CUDA runtime:
+
+```powershell
+.\scripts\setup_venv.ps1
+.\.venv\Scripts\Activate.ps1
+reefscape-doctor
+```
+
 Use the interactive menu:
 
 ```powershell
-python -m pip install -r .\requirements.txt
 python .\menu.py
 ```
 
@@ -39,10 +52,30 @@ Run tests:
 python -m unittest discover -s tests
 ```
 
+## Development
+
+Generated training outputs are intentionally not tracked by git:
+
+- `logs/`
+- `models/`
+- `.venv/`
+- Python caches and build artifacts
+
+Before committing changes, run:
+
+```powershell
+python -m unittest discover -s tests
+python -m compileall reefscape_rl scripts tests
+reefscape-doctor
+```
+
+If CUDA is unavailable on a development machine, use `--device auto` or
+`--device cpu` for smoke tests, but keep CUDA as the default path.
+
 Train PPO after installing optional RL dependencies. The trainer defaults to `--device cuda` for the RTX 4060; use `--device auto` or `--device cpu` only as a fallback:
 
 ```powershell
-python .\scripts\train_ppo.py --timesteps 100000 --device auto --n-envs 8
+python .\scripts\train_ppo.py --timesteps 100000 --device cuda --n-envs 8
 ```
 
 Use `--timesteps 0` to train until you stop it with Ctrl+C. The trainer will
