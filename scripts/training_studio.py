@@ -42,6 +42,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "variedDefense": True,
     "metricsOut": "logs/training_studio_metrics.jsonl",
     "metricsEverySteps": 512,
+    "structuredRun": True,
+    "checkpointEval": True,
+    "evalEpisodes": 5,
+    "bestModelOut": "models/best_reefscape_ppo",
+    "evalMetricsOut": "",
 }
 
 STUDIO_DIR = REPO_ROOT / "logs" / "studio"
@@ -50,6 +55,22 @@ RUNS_PATH = STUDIO_DIR / "runs.json"
 BEST_MODEL_PATH = STUDIO_DIR / "best_model.json"
 
 RUN_PRESETS: dict[str, dict[str, Any]] = {
+    "simple": {
+        "timesteps": 100_000,
+        "device": "cuda",
+        "nEnvs": 8,
+        "nSteps": 512,
+        "batchSize": 1024,
+        "learningRate": 0.0003,
+        "checkpointEverySteps": 10_000,
+        "keepCheckpoints": 2,
+        "heuristicPretrain": True,
+        "advantageScope": True,
+        "variedDefense": True,
+        "structuredRun": True,
+        "checkpointEval": True,
+        "evalEpisodes": 5,
+    },
     "smoke": {
         "timesteps": 256,
         "modelOut": "models/studio_smoke",
@@ -57,6 +78,7 @@ RUN_PRESETS: dict[str, dict[str, Any]] = {
         "nSteps": 64,
         "batchSize": 128,
         "checkpointEverySteps": 0,
+        "checkpointEval": False,
         "heuristicPretrain": False,
         "advantageScope": False,
         "metricsOut": "logs/studio/smoke_metrics.jsonl",
@@ -76,6 +98,7 @@ RUN_PRESETS: dict[str, dict[str, Any]] = {
         "nSteps": 2,
         "batchSize": 2,
         "checkpointEverySteps": 0,
+        "checkpointEval": False,
         "heuristicPretrain": False,
         "advantageScope": False,
         "metricsEverySteps": 1,
@@ -95,10 +118,19 @@ INT_FIELDS = {
     "vizEverySteps",
     "vizPreviewSteps",
     "metricsEverySteps",
+    "evalEpisodes",
 }
 FLOAT_FIELDS = {"learningRate"}
-BOOL_FIELDS = {"heuristicPretrain", "advantageScope", "variedDefense"}
-STRING_FIELDS = {"modelOut", "resumeFrom", "device", "checkpointDir", "metricsOut"}
+BOOL_FIELDS = {"heuristicPretrain", "advantageScope", "variedDefense", "structuredRun", "checkpointEval"}
+STRING_FIELDS = {
+    "modelOut",
+    "resumeFrom",
+    "device",
+    "checkpointDir",
+    "metricsOut",
+    "bestModelOut",
+    "evalMetricsOut",
+}
 DEVICE_CHOICES = {"auto", "cuda", "cpu"}
 
 
@@ -162,6 +194,7 @@ def normalize_config(payload: dict[str, Any] | None) -> dict[str, Any]:
         "vizEverySteps",
         "vizPreviewSteps",
         "metricsEverySteps",
+        "evalEpisodes",
     ):
         if config[key] < 1:
             raise ValueError(f"{key} must be >= 1")
@@ -193,14 +226,57 @@ def validate_launch_config(
     config: dict[str, Any],
     compute_status: dict[str, Any] | None = None,
 ) -> None:
+    report = validation_report(config, compute_status)
+    if report["errors"]:
+        raise ValueError("; ".join(report["errors"]))
+
+
+def validation_report(
+    config: dict[str, Any],
+    compute_status: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
     status = compute_status or get_compute_status()
+    errors: list[str] = []
+    warnings: list[str] = []
+    rollout_size = config["nEnvs"] * config["nSteps"]
+
     if config["device"] == "cuda" and not status["cudaAvailable"]:
         torch_version = status.get("torchVersion") or "not installed"
-        raise ValueError(
+        errors.append(
             "CUDA was selected, but this Python environment cannot see CUDA. "
             f"torch={torch_version}. Use device=auto/cpu or install a CUDA-enabled "
             "PyTorch build."
         )
+    if config["device"] == "cpu":
+        warnings.append("CPU is valid, but CUDA should be used for real training runs.")
+    if rollout_size < 2:
+        errors.append("rollout size must be at least 2")
+    if config["batchSize"] > rollout_size:
+        warnings.append(
+            f"batch size {config['batchSize']} is larger than rollout size {rollout_size}; "
+            "the trainer will clamp it."
+        )
+    if rollout_size % config["batchSize"] != 0 and config["batchSize"] <= rollout_size:
+        warnings.append("batch size does not divide rollout size evenly, which can waste samples.")
+    if config["checkpointEverySteps"] > 0:
+        checkpoint_dir = _resolve_repo_path(config["checkpointDir"])
+        if checkpoint_dir.exists() and checkpoint_dir.is_file():
+            errors.append("checkpoint directory points at a file")
+        if config["checkpointEverySteps"] < rollout_size:
+            warnings.append("checkpoint interval is smaller than one rollout; use a larger interval.")
+    if config["resumeFrom"]:
+        resume_path = _resolve_repo_path(config["resumeFrom"])
+        if not resume_path.exists():
+            errors.append(f"resume checkpoint was not found: {config['resumeFrom']}")
+    if config["timesteps"] and config["timesteps"] < rollout_size:
+        warnings.append("timesteps is smaller than one rollout; PPO may still collect a full rollout.")
+    if config["metricsEverySteps"] > max(1, config["timesteps"] or config["metricsEverySteps"]):
+        warnings.append("metrics interval is larger than the planned run.")
+    if config["checkpointEval"] and config["checkpointEverySteps"] <= 0:
+        warnings.append("checkpoint evaluation is enabled, but checkpoints are disabled.")
+    if config["pretrainSamples"] > 250_000:
+        warnings.append("large heuristic pretrain sample counts can delay the first PPO update.")
+    return {"errors": errors, "warnings": warnings}
 
 
 def get_compute_status() -> dict[str, Any]:
@@ -305,6 +381,18 @@ def build_train_command(config: dict[str, Any]) -> list[str]:
         "--metrics-every-steps",
         str(config["metricsEverySteps"]),
     ]
+    if config["checkpointEval"] and config["checkpointEverySteps"] > 0:
+        cmd.extend(
+            [
+                "--eval-checkpoints",
+                "--eval-episodes",
+                str(config["evalEpisodes"]),
+                "--best-model-out",
+                config["bestModelOut"],
+            ]
+        )
+        if config["evalMetricsOut"]:
+            cmd.extend(["--eval-metrics-out", config["evalMetricsOut"]])
     if config["resumeFrom"]:
         cmd.extend(["--resume-from", config["resumeFrom"]])
     if not config["heuristicPretrain"]:
@@ -331,10 +419,13 @@ class TrainingStudioState:
 
     def start_training(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         config = normalize_config(payload)
+        run_id = _make_run_id()
+        run_folder: Path | None = None
+        if config["structuredRun"]:
+            config, run_folder = _prepare_structured_run_config(config, run_id)
         validate_launch_config(config)
         cmd = build_train_command(config)
         metrics_path = _resolve_repo_path(config["metricsOut"])
-        run_id = time.strftime("%Y%m%d_%H%M%S")
         env = dict(os.environ)
         env["PYTHONUNBUFFERED"] = "1"
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
@@ -351,6 +442,9 @@ class TrainingStudioState:
             self._last_config = config
             self._metrics_path = metrics_path
             self._run_id = run_id
+            if run_folder is not None:
+                run_folder.mkdir(parents=True, exist_ok=True)
+                _write_json(run_folder / "config.json", config)
             _record_run(
                 {
                     "id": run_id,
@@ -362,6 +456,9 @@ class TrainingStudioState:
                     "command": cmd,
                     "metricsPath": _repo_relative(metrics_path),
                     "modelOut": config["modelOut"],
+                    "runFolder": _repo_relative(run_folder) if run_folder is not None else "",
+                    "evalMetricsPath": config.get("evalMetricsOut", ""),
+                    "bestModelOut": config.get("bestModelOut", ""),
                 }
             )
             self._process = subprocess.Popen(
@@ -550,6 +647,20 @@ class TrainingStudioHandler(BaseHTTPRequestHandler):
                 self._send_json(
                     self.server.state.stop_training(mode=str(payload.get("mode", "graceful")))
                 )
+            elif path == "/api/validate":
+                config = normalize_config(payload)
+                self._send_json(
+                    {
+                        **validation_report(config),
+                        "command": build_train_command(config),
+                    }
+                )
+            elif path == "/api/command":
+                config = normalize_config(payload)
+                self._send_json({"command": build_train_command(config)})
+            elif path == "/api/open-model-folder":
+                config = normalize_config(payload)
+                self._send_json(_open_model_folder(config))
             elif path == "/api/preset":
                 self._send_json({"config": preset_config(str(payload.get("name", "")))})
             elif path == "/api/config/save":
@@ -626,6 +737,24 @@ def _coerce_float(key: str, value: object) -> float:
 def _default_metrics_path(*, prefix: str = "training_studio_metrics") -> str:
     stamp = time.strftime("%Y%m%d_%H%M%S")
     return f"logs/studio/{prefix}_{stamp}.jsonl"
+
+
+def _make_run_id() -> str:
+    return time.strftime("%Y%m%d_%H%M%S")
+
+
+def _prepare_structured_run_config(
+    config: dict[str, Any],
+    run_id: str,
+) -> tuple[dict[str, Any], Path]:
+    run_folder = REPO_ROOT / "runs" / run_id
+    config = dict(config)
+    config["metricsOut"] = _repo_relative(run_folder / "metrics.jsonl")
+    config["modelOut"] = _repo_relative(run_folder / "model" / "reefscape_ppo")
+    config["checkpointDir"] = _repo_relative(run_folder / "checkpoints")
+    config["bestModelOut"] = _repo_relative(run_folder / "best" / "reefscape_ppo")
+    config["evalMetricsOut"] = _repo_relative(run_folder / "evaluation.jsonl")
+    return config, run_folder
 
 
 def _resolve_repo_path(value: str | Path) -> Path:
@@ -735,8 +864,10 @@ def _config_from_run(run_id: str) -> dict[str, Any]:
         if run.get("id") == run_id:
             config = dict(run.get("config", {}))
             stamp = time.strftime("%Y%m%d_%H%M%S")
-            config["modelOut"] = f"{config.get('modelOut', 'models/reefscape_ppo')}_copy_{stamp}"
-            config["metricsOut"] = f"logs/studio/duplicate_{stamp}.jsonl"
+            if not config.get("structuredRun", True):
+                config["modelOut"] = f"{config.get('modelOut', 'models/reefscape_ppo')}_copy_{stamp}"
+                config["metricsOut"] = f"logs/studio/duplicate_{stamp}.jsonl"
+            config["resumeFrom"] = ""
             return normalize_config(config)
     raise ValueError(f"run not found: {run_id}")
 
@@ -760,24 +891,26 @@ def _read_comparison(run_ids: list[str]) -> list[dict[str, Any]]:
 
 
 def _list_artifacts() -> list[dict[str, Any]]:
-    model_root = REPO_ROOT / "models"
     best_model = _load_json(BEST_MODEL_PATH, {})
-    if not model_root.exists():
-        return []
     artifacts = []
-    for path in model_root.rglob("*.zip"):
-        try:
-            stat = path.stat()
-        except OSError:
+    for root in (REPO_ROOT / "models", REPO_ROOT / "runs"):
+        if not root.exists():
             continue
-        artifacts.append(
-            {
-                "path": str(path.relative_to(REPO_ROOT)),
-                "sizeBytes": stat.st_size,
-                "modifiedAt": stat.st_mtime,
-                "best": best_model.get("path") == str(path.relative_to(REPO_ROOT)),
-            }
-        )
+        for path in root.rglob("*.zip"):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            rel = str(path.relative_to(REPO_ROOT))
+            normalized_rel = rel.replace("\\", "/")
+            artifacts.append(
+                {
+                    "path": rel,
+                    "sizeBytes": stat.st_size,
+                    "modifiedAt": stat.st_mtime,
+                    "best": best_model.get("path") == rel or "/best/" in normalized_rel,
+                }
+            )
     artifacts.sort(key=lambda item: item["modifiedAt"], reverse=True)
     return artifacts[:20]
 
@@ -829,7 +962,7 @@ def _build_artifact_process(action: str, path: Path) -> list[str]:
 
 def _safe_artifact_path(value: object) -> Path:
     path = _resolve_repo_path(str(value))
-    _ensure_within_models(path)
+    _ensure_within_artifacts(path)
     if not path.exists():
         raise ValueError(f"model not found: {_repo_relative(path)}")
     if path.suffix.lower() != ".zip":
@@ -838,10 +971,26 @@ def _safe_artifact_path(value: object) -> Path:
 
 
 def _ensure_within_models(path: Path) -> None:
-    root = (REPO_ROOT / "models").resolve()
+    _ensure_within_artifacts(path)
+
+
+def _ensure_within_artifacts(path: Path) -> None:
+    roots = [(REPO_ROOT / "models").resolve(), (REPO_ROOT / "runs").resolve()]
     resolved = path.resolve()
-    if root not in (resolved, *resolved.parents):
-        raise ValueError("artifact path must stay inside models/")
+    if any(root in (resolved, *resolved.parents) for root in roots):
+        return
+    raise ValueError("artifact path must stay inside models/ or runs/")
+
+
+def _open_model_folder(config: dict[str, Any]) -> dict[str, Any]:
+    folder = REPO_ROOT / "runs" if config["structuredRun"] else _resolve_repo_path(config["modelOut"]).parent
+    folder.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        os.startfile(str(folder))  # type: ignore[attr-defined]
+    else:
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        subprocess.Popen([opener, str(folder)])
+    return {"opened": _repo_relative(folder)}
 
 
 def _repo_relative(path: Path) -> str:
@@ -866,19 +1015,40 @@ INDEX_HTML = r"""<!doctype html>
   <title>REEFSCAPE Training Studio</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f5f7f6;
-      --panel: #ffffff;
-      --panel-soft: #eef4f0;
-      --text: #1d2623;
-      --muted: #66736d;
-      --line: #d9e1dc;
-      --accent: #2f7d5c;
-      --accent-strong: #236348;
-      --warn: #b77b1d;
-      --danger: #b5473f;
-      --ink: #22302b;
-      --shadow: 0 10px 28px rgba(31, 45, 39, 0.08);
+      color-scheme: dark;
+      --bg: #17051f;
+      --panel: #24102f;
+      --panel-soft: #30143e;
+      --text: #fff7ed;
+      --muted: #c9b5dc;
+      --line: #4b245c;
+      --accent: #ff8a00;
+      --accent-strong: #8b2cff;
+      --warn: #ffb020;
+      --danger: #ff4d5e;
+      --ink: #fff7ed;
+      --shadow: 0 18px 46px rgba(9, 2, 18, 0.38);
+      --canvas: #1b0b25;
+      --grid: #351745;
+      --code: #0b0310;
+    }
+    body.dark {
+      color-scheme: dark;
+      --bg: #09020f;
+      --panel: #13061d;
+      --panel-soft: #1c0a29;
+      --text: #fff8f0;
+      --muted: #c8afd9;
+      --line: #321243;
+      --accent: #ff9f1c;
+      --accent-strong: #a855f7;
+      --warn: #ffc247;
+      --danger: #ff6675;
+      --ink: #f4edff;
+      --shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+      --canvas: #0d0414;
+      --grid: #24102f;
+      --code: #050109;
     }
     * { box-sizing: border-box; }
     body {
@@ -886,7 +1056,9 @@ INDEX_HTML = r"""<!doctype html>
       min-height: 100vh;
       font: 14px/1.45 "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
       color: var(--text);
-      background: var(--bg);
+      background:
+        linear-gradient(135deg, rgba(249, 115, 22, 0.10), rgba(124, 58, 237, 0.10)),
+        var(--bg);
     }
     button, input, select {
       font: inherit;
@@ -896,10 +1068,11 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 7px;
       padding: 8px 12px;
       color: var(--ink);
-      background: #ffffff;
+      background: var(--panel);
       cursor: pointer;
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
     }
-    button:hover { border-color: #aebbb4; }
+    button:hover { border-color: var(--accent); transform: translateY(-1px); }
     button.primary {
       color: #ffffff;
       border-color: var(--accent);
@@ -922,7 +1095,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     aside {
       border-right: 1px solid var(--line);
-      background: #fbfcfb;
+      background: color-mix(in srgb, var(--panel) 88%, var(--accent-strong));
       padding: 18px 16px;
     }
     .brand {
@@ -976,14 +1149,14 @@ INDEX_HTML = r"""<!doctype html>
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #ffffff;
+      background: var(--panel);
       font-size: 12px;
     }
     .progress {
       height: 10px;
       overflow: hidden;
       border-radius: 999px;
-      background: #dfe8e3;
+      background: color-mix(in srgb, var(--line) 72%, var(--panel));
     }
     .progress > div {
       width: 0%;
@@ -1032,7 +1205,7 @@ INDEX_HTML = r"""<!doctype html>
       gap: 10px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
-      background: #fbfcfb;
+      background: color-mix(in srgb, var(--panel) 92%, var(--accent));
     }
     .panelHeader h2 {
       margin: 0;
@@ -1073,7 +1246,7 @@ INDEX_HTML = r"""<!doctype html>
       gap: 8px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
-      background: #fbfcfb;
+      background: color-mix(in srgb, var(--panel) 92%, var(--accent-strong));
     }
     .toolbar select,
     .toolbar input {
@@ -1095,10 +1268,10 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 7px;
       padding: 8px 9px;
       color: var(--text);
-      background: #ffffff;
+      background: var(--panel);
     }
     input:focus, select:focus {
-      outline: 2px solid rgba(47, 125, 92, 0.22);
+      outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
       border-color: var(--accent);
     }
     .wide { grid-column: 1 / -1; }
@@ -1115,7 +1288,7 @@ INDEX_HTML = r"""<!doctype html>
       padding: 8px;
       border: 1px solid var(--line);
       border-radius: 7px;
-      background: #fbfcfb;
+      background: color-mix(in srgb, var(--panel) 94%, var(--accent-strong));
       color: var(--text);
       font-size: 12px;
     }
@@ -1133,7 +1306,7 @@ INDEX_HTML = r"""<!doctype html>
       width: 900px;
       height: 260px;
       display: block;
-      background: #ffffff;
+      background: var(--canvas);
     }
     .canvasWrap {
       padding: 8px 10px 12px;
@@ -1143,7 +1316,7 @@ INDEX_HTML = r"""<!doctype html>
       overflow-y: hidden;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #ffffff;
+      background: var(--canvas);
     }
     .metricGrid {
       display: grid;
@@ -1155,7 +1328,7 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       overflow: hidden;
-      background: #ffffff;
+      background: var(--canvas);
     }
     .metricMini h3 {
       margin: 0;
@@ -1206,7 +1379,7 @@ INDEX_HTML = r"""<!doctype html>
       padding: 12px;
       overflow: auto;
       color: #e9f1ed;
-      background: #17221d;
+      background: var(--code);
       font: 12px/1.45 Consolas, "Cascadia Mono", monospace;
       white-space: pre-wrap;
     }
@@ -1223,7 +1396,7 @@ INDEX_HTML = r"""<!doctype html>
       padding: 8px;
       border: 1px solid var(--line);
       border-radius: 7px;
-      background: #fbfcfb;
+      background: color-mix(in srgb, var(--panel) 95%, var(--accent));
       font-size: 12px;
     }
     .artifactActions {
@@ -1251,6 +1424,24 @@ INDEX_HTML = r"""<!doctype html>
       color: #7e2b25;
       background: #fff1ef;
     }
+    .notice {
+      display: none;
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+      border-radius: 8px;
+      color: var(--warn);
+      background: color-mix(in srgb, var(--panel) 84%, var(--warn));
+    }
+    .helpPanel {
+      display: none;
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel-soft);
+    }
+    .helpPanel.open { display: block; }
+    .helpPanel ol { margin: 8px 0 0 20px; padding: 0; }
     @media (max-width: 980px) {
       .app { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -1300,7 +1491,11 @@ INDEX_HTML = r"""<!doctype html>
           <span id="cudaHealth">CUDA health pending</span>
         </div>
         <div class="sideActions">
+          <button id="simpleTrainButton" class="primary" type="button" title="Launch recommended CUDA training settings immediately.">Simple train</button>
           <button id="startButton" class="primary" type="button">Start</button>
+          <button id="copyCommandButton" type="button" title="Copy the current launch command to the clipboard.">Copy command</button>
+          <button id="openModelFolderButton" type="button" title="Open the folder that will receive the model artifact.">Open model folder</button>
+          <button id="themeButton" type="button" title="Switch dark mode for long training sessions.">Dark mode</button>
           <select id="stopMode">
             <option value="graceful">graceful stop</option>
             <option value="kill">hard kill</option>
@@ -1318,6 +1513,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
       </div>
       <p id="errorBox" class="error"></p>
+      <p id="warningBox" class="notice"></p>
       <div class="layout">
         <section class="panel">
           <div class="panelHeader">
@@ -1326,6 +1522,7 @@ INDEX_HTML = r"""<!doctype html>
           </div>
           <div class="toolbar">
             <select id="presetSelect">
+              <option value="simple">simple train</option>
               <option value="smoke">smoke test</option>
               <option value="full">full train</option>
               <option value="resume">resume train</option>
@@ -1337,6 +1534,15 @@ INDEX_HTML = r"""<!doctype html>
             <select id="savedConfigSelect"></select>
             <button id="loadConfigButton" type="button">Load</button>
             <button id="deleteConfigButton" type="button">Delete</button>
+            <button id="advantageHelpButton" type="button">AdvantageScope instructions</button>
+          </div>
+          <div id="advantageHelp" class="helpPanel">
+            <strong>AdvantageScope live preview</strong>
+            <ol>
+              <li>Start a run with AdvantageScope enabled.</li>
+              <li>Open AdvantageScope and connect NetworkTables to 127.0.0.1 on the configured NT port.</li>
+              <li>Use the robot pose, coral, defense robot, and event streams to inspect rollout behavior while PPO trains.</li>
+            </ol>
           </div>
           <form id="settingsForm" class="settings">
             <fieldset>
@@ -1357,6 +1563,10 @@ INDEX_HTML = r"""<!doctype html>
                 </label>
                 <label class="wide">Resume from
                   <input data-key="resumeFrom" type="text">
+                </label>
+                <label class="check wide">
+                  <input data-key="structuredRun" type="checkbox">
+                  Structured run folder
                 </label>
               </div>
             </fieldset>
@@ -1413,6 +1623,19 @@ INDEX_HTML = r"""<!doctype html>
                 </label>
                 <label>Keep latest
                   <input data-key="keepCheckpoints" type="number" min="1" step="1">
+                </label>
+                <label>Eval episodes
+                  <input data-key="evalEpisodes" type="number" min="1" step="1">
+                </label>
+                <label class="check">
+                  <input data-key="checkpointEval" type="checkbox">
+                  Evaluate checkpoints
+                </label>
+                <label class="wide">Best model
+                  <input data-key="bestModelOut" type="text">
+                </label>
+                <label class="wide">Evaluation metrics
+                  <input data-key="evalMetricsOut" type="text">
                 </label>
               </div>
             </fieldset>
@@ -1495,9 +1718,12 @@ INDEX_HTML = r"""<!doctype html>
       "timesteps", "nEnvs", "nSteps", "batchSize", "learningRate",
       "checkpointEverySteps", "keepCheckpoints", "pretrainSamples",
       "pretrainEpochs", "advantagePort", "vizEverySteps",
-      "vizPreviewSteps", "metricsEverySteps"
+      "vizPreviewSteps", "metricsEverySteps", "evalEpisodes"
     ]);
-    const checkboxKeys = new Set(["heuristicPretrain", "advantageScope", "variedDefense"]);
+    const checkboxKeys = new Set([
+      "heuristicPretrain", "advantageScope", "variedDefense",
+      "structuredRun", "checkpointEval"
+    ]);
     const metricDefs = [
       {key: "train/loss", label: "Loss", color: "#2f7d5c"},
       {key: "rollout/ep_rew_mean", label: "Reward", color: "#3c6e91"},
@@ -1518,12 +1744,19 @@ INDEX_HTML = r"""<!doctype html>
     const resetButton = document.getElementById("resetButton");
     const stopMode = document.getElementById("stopMode");
     const errorBox = document.getElementById("errorBox");
+    const warningBox = document.getElementById("warningBox");
     let computeStatus = null;
     let lastMetricCount = 0;
 
     function setError(message) {
       errorBox.textContent = message || "";
       errorBox.style.display = message ? "block" : "none";
+    }
+
+    function setWarnings(messages) {
+      const list = Array.isArray(messages) ? messages.filter(Boolean) : [];
+      warningBox.textContent = list.join(" ");
+      warningBox.style.display = list.length ? "block" : "none";
     }
 
     function fillForm(config) {
@@ -1570,6 +1803,7 @@ INDEX_HTML = r"""<!doctype html>
       defaults = data.config;
       computeStatus = data.compute;
       fillForm(defaults);
+      applyTooltips();
       renderCompute(computeStatus);
       renderGpu(data.gpu);
       renderSavedConfigs(data.savedConfigs || []);
@@ -1577,14 +1811,119 @@ INDEX_HTML = r"""<!doctype html>
       initializeMetricControls();
     }
 
+    function applyTooltips() {
+      const tips = {
+        timesteps: "Total PPO timesteps. Use 0 to train until stopped.",
+        device: "CUDA is the default and recommended device; CPU is only a fallback.",
+        modelOut: "Output path without .zip. Structured runs override this on launch.",
+        resumeFrom: "Existing .zip model/checkpoint to continue from.",
+        structuredRun: "Create runs/<timestamp>/ with config, metrics, checkpoints, and model files.",
+        nEnvs: "Number of parallel environments feeding PPO rollouts.",
+        nSteps: "Steps collected per environment before a PPO update.",
+        batchSize: "Mini-batch size. It should be no larger than n_envs * n_steps.",
+        learningRate: "PPO optimizer learning rate.",
+        heuristicPretrain: "Bootstrap the policy from the heuristic before PPO starts.",
+        variedDefense: "Randomize defense robot behavior during training.",
+        advantageScope: "Publish live training preview data over NetworkTables.",
+        checkpointDir: "Folder for checkpoint .zip files.",
+        checkpointEverySteps: "Save a checkpoint every N timesteps; 0 disables checkpoints.",
+        keepCheckpoints: "How many rotating checkpoints to keep.",
+        checkpointEval: "Evaluate every checkpoint and update the best model when it improves.",
+        evalEpisodes: "Deterministic episodes to run after each checkpoint.",
+        bestModelOut: "Output path without .zip for the best checkpoint model.",
+        evalMetricsOut: "JSONL file containing checkpoint evaluation summaries.",
+        advantagePort: "NetworkTables port for AdvantageScope.",
+        metricsOut: "Training metric JSONL file used by graphs."
+      };
+      form.querySelectorAll("[data-key]").forEach((input) => {
+        const tip = tips[input.dataset.key];
+        if (tip) {
+          input.title = tip;
+          const label = input.closest("label");
+          if (label) label.title = tip;
+        }
+      });
+    }
+
     async function startTraining() {
       setError("");
+      setWarnings([]);
       try {
+        const validation = await validateCurrentConfig();
+        if (validation.errors && validation.errors.length) {
+          setError(validation.errors.join(" "));
+          setWarnings(validation.warnings || []);
+          return;
+        }
+        setWarnings(validation.warnings || []);
         await api("/api/start", {
           method: "POST",
           body: JSON.stringify(readForm())
         });
         await refresh();
+      } catch (error) {
+        setError(error.message);
+      }
+    }
+
+    async function validateCurrentConfig() {
+      return await api("/api/validate", {
+        method: "POST",
+        body: JSON.stringify(readForm())
+      });
+    }
+
+    async function copyCommand() {
+      setError("");
+      try {
+        const validation = await validateCurrentConfig();
+        setWarnings(validation.warnings || []);
+        const command = (validation.command || []).join(" ");
+        document.getElementById("commandLine").textContent = "command: " + command;
+        const copied = await writeClipboard(command);
+        if (!copied) {
+          setWarnings([...(validation.warnings || []), "Clipboard permission was blocked; command is shown above."]);
+        }
+      } catch (error) {
+        setError(error.message);
+      }
+    }
+
+    async function writeClipboard(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch (error) {
+        // Fall through to the textarea fallback.
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch (error) {
+        copied = false;
+      } finally {
+        textarea.remove();
+      }
+      return copied;
+    }
+
+    async function openModelFolder() {
+      setError("");
+      try {
+        const data = await api("/api/open-model-folder", {
+          method: "POST",
+          body: JSON.stringify(readForm())
+        });
+        setWarnings(["Opened " + data.opened]);
       } catch (error) {
         setError(error.message);
       }
@@ -1833,6 +2172,21 @@ INDEX_HTML = r"""<!doctype html>
       fillForm(data.config);
     }
 
+    async function simpleTrain() {
+      setError("");
+      setWarnings([]);
+      try {
+        const data = await api("/api/preset", {
+          method: "POST",
+          body: JSON.stringify({name: "simple"})
+        });
+        fillForm(data.config);
+        await startTraining();
+      } catch (error) {
+        setError(error.message);
+      }
+    }
+
     async function saveCurrentConfig() {
       const name = document.getElementById("configName").value;
       const data = await api("/api/config/save", {
@@ -1893,11 +2247,16 @@ INDEX_HTML = r"""<!doctype html>
       if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
       if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
       const ctx = canvas.getContext("2d");
+      const styles = getComputedStyle(document.body);
+      const canvasColor = styles.getPropertyValue("--canvas").trim() || "#ffffff";
+      const mutedColor = styles.getPropertyValue("--muted").trim() || "#66736d";
+      const lineColor = styles.getPropertyValue("--line").trim() || "#d9e1dc";
+      const textColor = styles.getPropertyValue("--text").trim() || "#1d2623";
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       const width = cssWidth;
       const height = cssHeight;
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = canvasColor;
       ctx.fillRect(0, 0, width, height);
 
       const selectedKey = document.getElementById("metricSelect").value || "train/loss";
@@ -1925,7 +2284,7 @@ INDEX_HTML = r"""<!doctype html>
 
       drawGrid(ctx, width, height);
       if (!series.length) {
-        ctx.fillStyle = "#66736d";
+        ctx.fillStyle = mutedColor;
         ctx.font = "16px Segoe UI, sans-serif";
         ctx.fillText("Waiting for trainer metrics", 28, 44);
         return;
@@ -1942,10 +2301,10 @@ INDEX_HTML = r"""<!doctype html>
       const plotW = width - pad.left - pad.right;
       const plotH = height - pad.top - pad.bottom;
 
-      ctx.strokeStyle = "#d9e1dc";
+      ctx.strokeStyle = lineColor;
       ctx.lineWidth = 1;
       ctx.strokeRect(pad.left, pad.top, plotW, plotH);
-      ctx.fillStyle = "#66736d";
+      ctx.fillStyle = mutedColor;
       ctx.font = "12px Segoe UI, sans-serif";
       ctx.fillText(formatMetric(maxY), 10, pad.top + 4);
       ctx.fillText(formatMetric(minY), 10, pad.top + plotH);
@@ -1969,7 +2328,7 @@ INDEX_HTML = r"""<!doctype html>
       series.forEach((item) => {
         ctx.fillStyle = item.color;
         ctx.fillRect(legendX, 8, 10, 10);
-        ctx.fillStyle = "#1d2623";
+        ctx.fillStyle = textColor;
         ctx.fillText(item.label, legendX + 15, 17);
         legendX += 80;
       });
@@ -2010,15 +2369,19 @@ INDEX_HTML = r"""<!doctype html>
       canvas.width = Math.floor(cssWidth * ratio);
       canvas.height = Math.floor(cssHeight * ratio);
       const ctx = canvas.getContext("2d");
+      const styles = getComputedStyle(document.body);
+      const canvasColor = styles.getPropertyValue("--canvas").trim() || "#ffffff";
+      const mutedColor = styles.getPropertyValue("--muted").trim() || "#66736d";
+      const gridColor = styles.getPropertyValue("--grid").trim() || "#edf2ef";
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, cssWidth, cssHeight);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = canvasColor;
       ctx.fillRect(0, 0, cssWidth, cssHeight);
       const points = metrics
         .filter((row) => Number.isFinite(Number(row.num_timesteps)) && Number.isFinite(Number(row[metric.key])))
         .map((row) => ({x: Number(row.num_timesteps), y: Number(row[metric.key])}));
       if (points.length < 2) {
-        ctx.fillStyle = "#66736d";
+        ctx.fillStyle = mutedColor;
         ctx.font = "12px Segoe UI, sans-serif";
         ctx.fillText("waiting", 12, 24);
         return;
@@ -2032,7 +2395,7 @@ INDEX_HTML = r"""<!doctype html>
       const plotH = cssHeight - pad.top - pad.bottom;
       const xSpan = Math.max(1, maxX - minX);
       const ySpan = Math.max(1e-9, maxY - minY);
-      ctx.strokeStyle = "#edf2ef";
+      ctx.strokeStyle = gridColor;
       ctx.strokeRect(pad.left, pad.top, plotW, plotH);
       ctx.beginPath();
       decimatePoints(points, plotW).forEach((point, index) => {
@@ -2044,7 +2407,7 @@ INDEX_HTML = r"""<!doctype html>
       ctx.strokeStyle = metric.color;
       ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.fillStyle = "#66736d";
+      ctx.fillStyle = mutedColor;
       ctx.font = "11px Segoe UI, sans-serif";
       ctx.fillText(formatMetric(maxY), 4, 18);
       ctx.fillText(formatMetric(minY), 4, cssHeight - 28);
@@ -2087,7 +2450,8 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function drawGrid(ctx, width, height) {
-      ctx.strokeStyle = "#edf2ef";
+      const gridColor = getComputedStyle(document.body).getPropertyValue("--grid").trim() || "#edf2ef";
+      ctx.strokeStyle = gridColor;
       ctx.lineWidth = 1;
       for (let x = 0; x <= width; x += 60) {
         ctx.beginPath();
@@ -2139,8 +2503,19 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     startButton.addEventListener("click", startTraining);
+    document.getElementById("simpleTrainButton").addEventListener("click", simpleTrain);
     stopButton.addEventListener("click", stopTraining);
     resetButton.addEventListener("click", () => fillForm(defaults));
+    document.getElementById("copyCommandButton").addEventListener("click", copyCommand);
+    document.getElementById("openModelFolderButton").addEventListener("click", openModelFolder);
+    document.getElementById("themeButton").addEventListener("click", () => {
+      document.body.classList.toggle("dark");
+      localStorage.setItem("reefscapeStudioDark", document.body.classList.contains("dark") ? "1" : "0");
+      refresh();
+    });
+    document.getElementById("advantageHelpButton").addEventListener("click", () => {
+      document.getElementById("advantageHelp").classList.toggle("open");
+    });
     document.getElementById("applyPresetButton").addEventListener("click", () => applyPreset().catch((error) => setError(error.message)));
     document.getElementById("saveConfigButton").addEventListener("click", () => saveCurrentConfig().catch((error) => setError(error.message)));
     document.getElementById("loadConfigButton").addEventListener("click", loadCurrentConfig);
@@ -2157,6 +2532,9 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById("metricSelect").addEventListener("change", refresh);
     document.getElementById("zoomInput").addEventListener("input", refresh);
     document.getElementById("smoothInput").addEventListener("input", refresh);
+    if (localStorage.getItem("reefscapeStudioDark") === "1") {
+      document.body.classList.add("dark");
+    }
     loadDefaults().then(refresh);
     setInterval(refresh, 1000);
   </script>

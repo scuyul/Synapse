@@ -33,6 +33,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("models/checkpoints"))
     parser.add_argument("--checkpoint-every-steps", type=int, default=10_000)
     parser.add_argument("--keep-checkpoints", type=int, default=2)
+    parser.add_argument(
+        "--eval-checkpoints",
+        action="store_true",
+        help="Run a deterministic evaluation after each checkpoint and update the best model.",
+    )
+    parser.add_argument("--eval-episodes", type=int, default=5)
+    parser.add_argument("--best-model-out", type=Path, default=Path("models/best_reefscape_ppo"))
+    parser.add_argument("--eval-metrics-out", type=Path, default=None)
     parser.add_argument("--metrics-out", type=Path, default=None)
     parser.add_argument("--metrics-every-steps", type=int, default=512)
     parser.add_argument("--pretrain-heuristic-samples", type=int, default=50_000)
@@ -164,8 +172,18 @@ def main() -> int:
                 checkpoint_dir=args.checkpoint_dir,
                 every_steps=args.checkpoint_every_steps,
                 keep=args.keep_checkpoints,
+                eval_after_save=args.eval_checkpoints,
+                eval_episodes=args.eval_episodes,
+                best_model_out=args.best_model_out,
+                eval_metrics_out=args.eval_metrics_out,
+                make_eval_env=make_env,
             )
         )
+        if args.eval_checkpoints:
+            print(
+                "Checkpoint evaluation enabled; best model will be written to "
+                f"{args.best_model_out}.zip"
+            )
 
     if args.metrics_out is not None:
         callbacks.append(
@@ -204,15 +222,37 @@ def _resolve_total_timesteps(timesteps: int) -> int:
 
 
 class RotatingCheckpointCallback(BaseCallback):
-    def __init__(self, *, checkpoint_dir: Path, every_steps: int, keep: int):
+    def __init__(
+        self,
+        *,
+        checkpoint_dir: Path,
+        every_steps: int,
+        keep: int,
+        eval_after_save: bool = False,
+        eval_episodes: int = 5,
+        best_model_out: Path | None = None,
+        eval_metrics_out: Path | None = None,
+        make_eval_env=None,
+    ):
         super().__init__()
         self.checkpoint_dir = checkpoint_dir
         self.every_steps = every_steps
         self.keep = max(1, keep)
         self.saved: list[Path] = []
+        self.eval_after_save = eval_after_save
+        self.eval_episodes = max(1, eval_episodes)
+        self.best_model_out = best_model_out
+        self.eval_metrics_out = eval_metrics_out
+        self.make_eval_env = make_eval_env
+        self.best_score: tuple[float, float, float, float] | None = None
 
     def _on_training_start(self) -> None:
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        if self.eval_metrics_out is not None:
+            self.eval_metrics_out.parent.mkdir(parents=True, exist_ok=True)
+            self.eval_metrics_out.write_text("", encoding="utf-8")
+        if self.best_model_out is not None:
+            self.best_model_out.parent.mkdir(parents=True, exist_ok=True)
 
     def _on_step(self) -> bool:
         if self.num_timesteps <= 0 or self.num_timesteps % self.every_steps != 0:
@@ -222,10 +262,57 @@ class RotatingCheckpointCallback(BaseCallback):
         zip_path = path.with_suffix(".zip")
         self.saved.append(zip_path)
         print(f"Checkpoint saved: {zip_path}")
+        if self.eval_after_save:
+            self._evaluate_checkpoint(zip_path)
         while len(self.saved) > self.keep:
             old = self.saved.pop(0)
             _delete_checkpoint_if_possible(old)
         return True
+
+    def _evaluate_checkpoint(self, checkpoint_path: Path) -> None:
+        if self.make_eval_env is None:
+            print("Warning: checkpoint evaluation skipped because no eval env factory exists.")
+            return
+        result = _evaluate_model(
+            self.model,
+            make_eval_env=self.make_eval_env,
+            episodes=self.eval_episodes,
+        )
+        result.update(
+            {
+                "event": "checkpoint_eval",
+                "num_timesteps": int(self.num_timesteps),
+                "checkpoint": str(checkpoint_path),
+            }
+        )
+        score = (
+            float(result["mean_scored_coral"]),
+            float(result["mean_return"]),
+            -float(result["mean_hard_hits"]),
+            -float(result["mean_hits"]),
+        )
+        is_best = self.best_score is None or score > self.best_score
+        result["best"] = is_best
+        if is_best:
+            self.best_score = score
+            if self.best_model_out is not None:
+                self.model.save(self.best_model_out)
+                metadata_path = self.best_model_out.with_suffix(".json")
+                metadata_path.write_text(
+                    json.dumps(result, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+                print(f"New best model: {self.best_model_out}.zip")
+        if self.eval_metrics_out is not None:
+            with self.eval_metrics_out.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(result, sort_keys=True) + "\n")
+        print(
+            "Checkpoint eval: "
+            f"return={result['mean_return']:.3f}, "
+            f"scored={result['mean_scored_coral']:.2f}, "
+            f"hits={result['mean_hits']:.2f}, "
+            f"hard_hits={result['mean_hard_hits']:.2f}"
+        )
 
 
 def _delete_checkpoint_if_possible(path: Path) -> None:
@@ -239,6 +326,45 @@ def _delete_checkpoint_if_possible(path: Path) -> None:
         except PermissionError:
             time.sleep(0.1)
     print(f"Warning: could not delete old checkpoint because it is locked: {path}")
+
+
+def _evaluate_model(model, *, make_eval_env, episodes: int) -> dict[str, float]:
+    returns: list[float] = []
+    scored: list[float] = []
+    hits: list[float] = []
+    hard_hits: list[float] = []
+    for episode in range(episodes):
+        env = make_eval_env()
+        observation, info = env.reset(seed=10_000 + episode)
+        done = False
+        episode_return = 0.0
+        last_info = info if isinstance(info, dict) else {}
+        while not done:
+            action, _ = model.predict(observation, deterministic=True)
+            observation, reward, terminated, truncated, info = env.step(action)
+            episode_return += float(reward)
+            done = bool(terminated or truncated)
+            if isinstance(info, dict):
+                last_info = info
+        close = getattr(env, "close", None)
+        if callable(close):
+            close()
+        returns.append(episode_return)
+        scored.append(float(last_info.get("scored_coral", 0.0)))
+        hits.append(float(last_info.get("other_robot_hits", 0.0)))
+        hard_hits.append(float(last_info.get("other_robot_hard_hits", 0.0)))
+    return {
+        "mean_return": _mean(returns),
+        "mean_scored_coral": _mean(scored),
+        "mean_hits": _mean(hits),
+        "mean_hard_hits": _mean(hard_hits),
+        "best_return": max(returns) if returns else 0.0,
+        "best_scored_coral": max(scored) if scored else 0.0,
+    }
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
 
 
 class MetricsJsonlCallback(BaseCallback):

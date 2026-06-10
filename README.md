@@ -28,16 +28,16 @@ Create a local virtual environment and install the pinned CUDA runtime:
 reefscape-doctor
 ```
 
-Use the interactive menu:
-
-```powershell
-python .\menu.py
-```
-
-Open the browser-based training studio directly:
+Open the browser-based training studio. This is the primary path for launching CUDA training, saving configs, comparing runs, watching metrics, and managing model artifacts:
 
 ```powershell
 python .\scripts\training_studio.py
+```
+
+The text menu is still available as a fallback for quick diagnostics and command-line flows:
+
+```powershell
+python .\menu.py
 ```
 
 Run a heuristic rollout and write a log:
@@ -58,6 +58,7 @@ Generated training outputs are intentionally not tracked by git:
 
 - `logs/`
 - `models/`
+- `runs/`
 - `.venv/`
 - Python caches and build artifacts
 
@@ -112,7 +113,7 @@ Left stick drives the defense robot field-relative. Right stick X rotates it. Th
 
 Models trained before the moving traffic robot was added can still replay through the compatibility adapter, but they did not learn the new obstacle observations. Retrain for real collision avoidance behavior.
 
-Training saves rotating checkpoints in `models/checkpoints` by default and keeps the latest two. If you press Ctrl+C during training, it saves `models/reefscape_ppo_interrupted.zip`.
+Studio launches create structured run folders under `runs/<timestamp>/` with the launch config, training metrics, checkpoint evaluation metrics, checkpoints, final model, and best model. Direct CLI training still saves rotating checkpoints in `models/checkpoints` by default and keeps the latest two. If you press Ctrl+C during training, it saves `models/reefscape_ppo_interrupted.zip`.
 
 Resume training:
 

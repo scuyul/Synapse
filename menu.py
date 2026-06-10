@@ -12,42 +12,45 @@ PYTHON = sys.executable
 def main() -> int:
     while True:
         print()
-        print("REEFSCAPE RL Menu")
-        print("=================")
-        print("1. Watch heuristic simulator in AdvantageScope")
-        print("2. Train PPO model with AdvantageScope preview")
-        print("3. Watch trained model in AdvantageScope")
-        print("4. Generate rollout CSV log")
-        print("5. Run tests")
-        print("6. Check CUDA / RTX 4060")
-        print("7. Quick train smoke test")
-        print("8. Quick trained-model smoke run")
-        print("9. Resume PPO training from model/checkpoint")
-        print("10. Open training web studio")
-        print("11. Exit")
+        print("REEFSCAPE RL Control")
+        print("====================")
+        print("1. Open Training Studio (recommended)")
+        print("2. Simple CUDA train (recommended settings)")
+        print("3. Check CUDA / RTX 4060")
+        print("4. Run tests")
+        print("5. Watch heuristic simulator in AdvantageScope")
+        print("6. Train PPO from menu fallback")
+        print("7. Resume PPO from menu fallback")
+        print("8. Watch trained model in AdvantageScope")
+        print("9. Quick train smoke test")
+        print("10. Quick trained-model smoke run")
+        print("11. Generate rollout CSV log")
+        print("12. Exit")
         choice = input("Select option: ").strip()
 
         if choice == "1":
-            run_live_heuristic()
-        elif choice == "2":
-            run_training()
-        elif choice == "3":
-            run_trained_model()
-        elif choice == "4":
-            run_rollout_log()
-        elif choice == "5":
-            run_command([PYTHON, "-m", "unittest", "discover", "-s", "tests"])
-        elif choice == "6":
-            check_cuda()
-        elif choice == "7":
-            run_training(smoke=True)
-        elif choice == "8":
-            run_trained_model(smoke=True)
-        elif choice == "9":
-            run_training(resume=True)
-        elif choice == "10":
             run_training_studio()
+        elif choice == "2":
+            run_simple_training()
+        elif choice == "3":
+            check_cuda()
+        elif choice == "4":
+            run_command([PYTHON, "-m", "unittest", "discover", "-s", "tests"])
+        elif choice == "5":
+            run_live_heuristic()
+        elif choice == "6":
+            run_training()
+        elif choice == "7":
+            run_training(resume=True)
+        elif choice == "8":
+            run_trained_model()
+        elif choice == "9":
+            run_training(smoke=True)
+        elif choice == "10":
+            run_trained_model(smoke=True)
         elif choice == "11":
+            run_rollout_log()
+        elif choice == "12":
             return 0
         else:
             print("Invalid option.")
@@ -152,6 +155,37 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
         cmd.append("--no-advantagescope")
     if not varied_defense:
         cmd.append("--fixed-defense")
+    run_command(cmd)
+
+
+def run_simple_training() -> None:
+    cmd = [
+        PYTHON,
+        "scripts/train_ppo.py",
+        "--timesteps",
+        "100000",
+        "--device",
+        "cuda",
+        "--n-envs",
+        "8",
+        "--n-steps",
+        "512",
+        "--batch-size",
+        "1024",
+        "--learning-rate",
+        "0.0003",
+        "--checkpoint-dir",
+        "models/checkpoints",
+        "--checkpoint-every-steps",
+        "10000",
+        "--keep-checkpoints",
+        "2",
+        "--eval-checkpoints",
+        "--eval-episodes",
+        "5",
+        "--best-model-out",
+        "models/best_reefscape_ppo",
+    ]
     run_command(cmd)
 
 

@@ -16,6 +16,7 @@ dist/
 *.egg-info/
 logs/
 models/
+runs/
 *.wpi
 *.wpilog
 .vscode/
