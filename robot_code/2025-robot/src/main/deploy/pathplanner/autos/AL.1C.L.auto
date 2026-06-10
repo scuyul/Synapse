@@ -1,0 +1,56 @@
+{
+  "version": "2025.0",
+  "command": {
+    "type": "sequential",
+    "data": {
+      "commands": [
+        {
+          "type": "named",
+          "data": {
+            "name": "L0"
+          }
+        },
+        {
+          "type": "path",
+          "data": {
+            "pathName": "AL.2C.L.Path"
+          }
+        },
+        {
+          "type": "parallel",
+          "data": {
+            "commands": [
+              {
+                "type": "named",
+                "data": {
+                  "name": "Auto1"
+                }
+              },
+              {
+                "type": "named",
+                "data": {
+                  "name": "L4"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "Exhaust"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "L0"
+          }
+        }
+      ]
+    }
+  },
+  "resetOdom": true,
+  "folder": "AL.1C.Autos",
+  "choreoAuto": false
+}

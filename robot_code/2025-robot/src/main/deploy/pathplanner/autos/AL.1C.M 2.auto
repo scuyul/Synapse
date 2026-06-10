@@ -1,0 +1,62 @@
+{
+  "version": "2025.0",
+  "command": {
+    "type": "sequential",
+    "data": {
+      "commands": [
+        {
+          "type": "named",
+          "data": {
+            "name": "L0"
+          }
+        },
+        {
+          "type": "path",
+          "data": {
+            "pathName": "1M"
+          }
+        },
+        {
+          "type": "parallel",
+          "data": {
+            "commands": [
+              {
+                "type": "named",
+                "data": {
+                  "name": "L4"
+                }
+              },
+              {
+                "type": "named",
+                "data": {
+                  "name": "Align2"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "Exhaust"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "L0"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "AlgaeSnapper"
+          }
+        }
+      ]
+    }
+  },
+  "resetOdom": true,
+  "folder": "AL.1C.Autos",
+  "choreoAuto": false
+}

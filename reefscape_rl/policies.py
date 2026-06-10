@@ -8,11 +8,8 @@ import random
 from reefscape_rl.constants import (
     BLUE_REEF_CENTER,
     FIELD_WIDTH_M,
-    MAX_ANGULAR_SPEED_RADPS,
-    MAX_LINEAR_SPEED_MPS,
     REEF_CLEARANCE_M,
     REEF_OBSTACLE_RADIUS_M,
-    ROBOT_RADIUS_M,
     SCORE_HEADING_TOLERANCE_RAD,
 )
 from reefscape_rl.env import ReefscapeEnv
@@ -53,6 +50,7 @@ class HeuristicCyclePolicy:
             target_x, target_y = objective.x, objective.y
         else:
             target_x, target_y = self._avoid_reef_waypoint(
+                env,
                 state.pose.x,
                 state.pose.y,
                 objective.x,
@@ -62,14 +60,14 @@ class HeuristicCyclePolicy:
         dy = target_y - state.pose.y
         target_distance = math.hypot(dx, dy)
 
-        vx_norm = clamp((1.8 * dx) / MAX_LINEAR_SPEED_MPS, -1.0, 1.0)
-        vy_norm = clamp((1.8 * dy) / MAX_LINEAR_SPEED_MPS, -1.0, 1.0)
+        vx_norm = clamp((1.8 * dx) / env.config.max_linear_speed_mps, -1.0, 1.0)
+        vy_norm = clamp((1.8 * dy) / env.config.max_linear_speed_mps, -1.0, 1.0)
         if target_distance > 0.25:
             vx_norm = _with_min_command(vx_norm, 0.08)
             vy_norm = _with_min_command(vy_norm, 0.08)
 
         heading_error = normalize_angle(objective.heading - state.pose.heading)
-        omega_norm = clamp((3.0 * heading_error) / MAX_ANGULAR_SPEED_RADPS, -1.0, 1.0)
+        omega_norm = clamp((3.0 * heading_error) / env.config.max_angular_speed_radps, -1.0, 1.0)
 
         intake = 0.0
         score = 0.0
@@ -144,11 +142,18 @@ class HeuristicCyclePolicy:
         return None
 
     def _avoid_reef_waypoint(
-        self, start_x: float, start_y: float, goal_x: float, goal_y: float
+        self,
+        env: ReefscapeEnv,
+        start_x: float,
+        start_y: float,
+        goal_x: float,
+        goal_y: float,
     ) -> tuple[float, float]:
         center_x, center_y = BLUE_REEF_CENTER
-        keepout_radius = REEF_OBSTACLE_RADIUS_M + ROBOT_RADIUS_M + REEF_CLEARANCE_M + 0.35
-        hard_keepout_radius = REEF_OBSTACLE_RADIUS_M + ROBOT_RADIUS_M + REEF_CLEARANCE_M
+        keepout_radius = (
+            REEF_OBSTACLE_RADIUS_M + env.config.robot_radius_m + REEF_CLEARANCE_M + 0.35
+        )
+        hard_keepout_radius = REEF_OBSTACLE_RADIUS_M + env.config.robot_radius_m + REEF_CLEARANCE_M
         robot_angle = math.atan2(start_y - center_y, start_x - center_x)
         robot_distance = math.hypot(start_x - center_x, start_y - center_y)
         if robot_distance < hard_keepout_radius + 0.05:

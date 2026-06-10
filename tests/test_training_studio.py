@@ -31,6 +31,7 @@ class TrainingStudioTests(unittest.TestCase):
         self.assertOptionValue(cmd, "--timesteps", "256")
         self.assertOptionValue(cmd, "--model-out", "models/test_model")
         self.assertOptionValue(cmd, "--device", "cpu")
+        self.assertOptionValue(cmd, "--robot-profile", "sim")
         self.assertOptionValue(cmd, "--n-envs", "2")
         self.assertOptionValue(cmd, "--metrics-out", "logs/test_metrics.jsonl")
 

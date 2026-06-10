@@ -140,6 +140,13 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
             "Resume from model/checkpoint .zip", "models/reefscape_ppo_interrupted.zip"
         )
     device = prompt_choice("Device", "cuda", {"auto", "cuda", "cpu"})
+    robot_profile = prompt_choice("Robot profile", "sim", {"sim", "2025-robot"})
+    if robot_profile == "2025-robot" and not prompt_bool(
+        "2025 robot profile changes dynamics; continue with compatible retrain/resume",
+        False,
+    ):
+        print("Training cancelled.")
+        return
     n_envs = prompt_int("Parallel envs", 2 if smoke else 8)
     n_steps = prompt_int("PPO rollout steps per env", 64 if smoke else 512)
     batch_size = prompt_int("PPO batch size", 128 if smoke else 1024)
@@ -165,6 +172,8 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
         model_out,
         "--device",
         device,
+        "--robot-profile",
+        robot_profile,
         "--n-envs",
         str(n_envs),
         "--n-steps",
@@ -202,6 +211,12 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
 
 
 def run_simple_training() -> None:
+    if not prompt_bool(
+        "Use copied 2025 robot profile and start a new compatible training run",
+        False,
+    ):
+        print("Simple train cancelled.")
+        return
     cmd = [
         PYTHON,
         "scripts/train_ppo.py",
@@ -209,6 +224,8 @@ def run_simple_training() -> None:
         "100000",
         "--device",
         "cuda",
+        "--robot-profile",
+        "2025-robot",
         "--n-envs",
         "8",
         "--n-steps",

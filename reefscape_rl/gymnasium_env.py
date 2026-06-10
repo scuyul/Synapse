@@ -12,7 +12,6 @@ except ImportError as exc:  # pragma: no cover - optional dependency guard
     ) from exc
 
 from reefscape_rl.action_adapter import ResidualHeuristicActionAdapter
-from reefscape_rl.constants import MAX_LINEAR_SPEED_MPS
 from reefscape_rl.env import (
     OBSERVATION_FIELDS,
     OTHER_ROBOT_SPEED_SCALE_MAX,
@@ -118,4 +117,4 @@ def _observation_bounds(config: ReefscapeEnvConfig) -> tuple[np.ndarray, np.ndar
 
 def _other_robot_velocity_norm_bound(config: ReefscapeEnvConfig) -> float:
     speed_scale = OTHER_ROBOT_SPEED_SCALE_MAX if config.randomize_other_robot_behavior else 1.0
-    return max(0.0, config.other_robot_speed_mps) * speed_scale / MAX_LINEAR_SPEED_MPS
+    return max(0.0, config.other_robot_speed_mps) * speed_scale / config.max_linear_speed_mps

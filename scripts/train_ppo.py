@@ -66,6 +66,12 @@ def parse_args() -> argparse.Namespace:
         default="cuda",
         help="Training device. Defaults to CUDA; use 'auto' or 'cpu' as fallback.",
     )
+    parser.add_argument(
+        "--robot-profile",
+        choices=("sim", "2025-robot"),
+        default="sim",
+        help="Robot dynamics profile. Use 2025-robot to train against copied robot constants.",
+    )
     return parser.parse_args()
 
 
@@ -82,12 +88,18 @@ def main() -> int:
             TrainingVisualizationConfig,
         )
         from reefscape_rl.imitation import ImitationConfig, pretrain_from_heuristic
+        from reefscape_rl.robot_integration import apply_profile_to_env_config, load_robot_profile
     except ImportError as exc:
         print(exc)
         print("Install dependencies with: python -m pip install -r .\\requirements.txt")
         return 2
 
     args = parse_args()
+    try:
+        robot_profile = load_robot_profile(args.robot_profile)
+    except (OSError, ValueError) as exc:
+        print(exc)
+        return 2
     try:
         total_timesteps = _resolve_total_timesteps(args.timesteps)
     except ValueError as exc:
@@ -113,16 +125,30 @@ def main() -> int:
     print(f"Using device: {device}")
     if device == "cuda":
         print(f"CUDA device: {torch.cuda.get_device_name(0)}")
+    if robot_profile is not None:
+        print(
+            "Using robot profile: "
+            f"{robot_profile.name} "
+            f"({robot_profile.max_linear_speed_mps:.2f} m/s, "
+            f"{robot_profile.max_angular_speed_radps:.2f} rad/s)"
+        )
 
     def make_env():
-        return GymnasiumReefscapeEnv(
-            config=None
+        env_config = (
+            None
             if not args.fixed_defense
             else ReefscapeEnvConfig(
                 auto_mechanisms=False,
                 randomize_other_robot_start=False,
                 randomize_other_robot_behavior=False,
             )
+        )
+        if robot_profile is not None:
+            env_config = apply_profile_to_env_config(
+                env_config or ReefscapeEnvConfig(), robot_profile
+            )
+        return GymnasiumReefscapeEnv(
+            config=env_config,
         )
 
     env = make_vec_env(make_env, n_envs=args.n_envs)

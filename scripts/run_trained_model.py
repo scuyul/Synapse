@@ -18,6 +18,7 @@ from reefscape_rl.mental_visualizer import (
     build_mental_snapshot,
 )
 from reefscape_rl.nt_publisher import AdvantageScopeNtPublisher
+from reefscape_rl.robot_integration import apply_profile_to_env_config, load_robot_profile
 from reefscape_rl.xbox_controller import XboxController
 
 
@@ -36,6 +37,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--auto-mechanisms", action="store_true")
     parser.add_argument("--manual-mechanisms", action="store_true")
     parser.add_argument("--raw-actions", action="store_true")
+    parser.add_argument(
+        "--robot-profile",
+        choices=("sim", "2025-robot"),
+        default="sim",
+        help="Robot dynamics profile used by the replay environment.",
+    )
     parser.add_argument(
         "--mental-visualizer",
         action="store_true",
@@ -62,15 +69,20 @@ def main() -> int:
     if not args.model.exists():
         print(f"Model not found: {args.model}")
         return 2
+    try:
+        robot_profile = load_robot_profile(args.robot_profile)
+    except (OSError, ValueError) as exc:
+        print(exc)
+        return 2
 
     model = PPO.load(args.model)
-    env = ReefscapeEnv(
-        ReefscapeEnvConfig(
-            randomize_start=not args.fixed_start,
-            auto_mechanisms=args.auto_mechanisms and not args.manual_mechanisms,
-            other_robot_manual_control=args.xbox_defense,
-        )
+    env_config = ReefscapeEnvConfig(
+        randomize_start=not args.fixed_start,
+        auto_mechanisms=args.auto_mechanisms and not args.manual_mechanisms,
+        other_robot_manual_control=args.xbox_defense,
     )
+    env_config = apply_profile_to_env_config(env_config, robot_profile)
+    env = ReefscapeEnv(env_config)
     action_adapter = None if args.raw_actions else ResidualHeuristicActionAdapter()
     publisher = AdvantageScopeNtPublisher.start_server(port=args.port)
     mental_visualizer = (
@@ -85,6 +97,8 @@ def main() -> int:
             return 2
 
     print(f"Loaded model: {args.model}")
+    if robot_profile is not None:
+        print(f"Robot profile: {robot_profile.name}")
     print(f"NetworkTables server started on 127.0.0.1:{args.port}")
     print("In AdvantageScope: connect to NetworkTables at 127.0.0.1.")
     if mental_visualizer is not None:

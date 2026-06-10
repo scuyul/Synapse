@@ -40,6 +40,12 @@ The text menu is still available as a fallback for quick diagnostics and command
 python .\menu.py
 ```
 
+The copied 2025 robot project lives in `robot_code/2025-robot/`. Training can opt into its drivetrain constants with the `2025-robot` robot profile. That changes simulator dynamics, so treat old models as incompatible unless you intentionally validate them or retrain:
+
+```powershell
+python .\scripts\train_ppo.py --robot-profile 2025-robot --timesteps 100000 --device cuda
+```
+
 Run a heuristic rollout and write a log:
 
 ```powershell
@@ -59,6 +65,7 @@ Generated training outputs are intentionally not tracked by git:
 - `logs/`
 - `models/`
 - `runs/`
+- copied robot code build output inside `robot_code/2025-robot/build/` if you build the Java project there
 - `.venv/`
 - Python caches and build artifacts
 

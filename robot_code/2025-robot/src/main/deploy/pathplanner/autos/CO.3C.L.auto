@@ -1,0 +1,49 @@
+{
+  "version": "2025.0",
+  "command": {
+    "type": "sequential",
+    "data": {
+      "commands": [
+        {
+          "type": "path",
+          "data": {
+            "pathName": "CO.L.Start"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "Maybe1"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "Maybe2"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "Maybe3"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "Maybe4"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "Maybe5"
+          }
+        }
+      ]
+    }
+  },
+  "resetOdom": true,
+  "folder": "CO.3C.Autos",
+  "choreoAuto": false
+}

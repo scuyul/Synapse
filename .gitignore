@@ -19,5 +19,9 @@ models/
 runs/
 *.wpi
 *.wpilog
+robot_code/2025-robot/.gradle/
+robot_code/2025-robot/build/
+robot_code/2025-robot/bin/
+robot_code/2025-robot/AdvantageKit/**/*.glb
 .vscode/
 .idea/

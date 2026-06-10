@@ -109,6 +109,12 @@ class ReefscapeEnvConfig:
     other_robot_enabled: bool = True
     other_robot_speed_mps: float = OTHER_ROBOT_SPEED_MPS
     other_robot_clearance_m: float = OTHER_ROBOT_CLEARANCE_M
+    robot_radius_m: float = ROBOT_RADIUS_M
+    other_robot_radius_m: float = OTHER_ROBOT_RADIUS_M
+    max_linear_speed_mps: float = MAX_LINEAR_SPEED_MPS
+    max_angular_speed_radps: float = MAX_ANGULAR_SPEED_RADPS
+    max_linear_accel_mps2: float = MAX_LINEAR_ACCEL_MPS2
+    max_angular_accel_radps2: float = MAX_ANGULAR_ACCEL_RADPS2
     other_robot_tap_penalty: float = -0.15
     other_robot_collision_penalty: float = -4.0
     other_robot_hard_hit_speed_mps: float = 2.25
@@ -361,8 +367,8 @@ class ReefscapeEnv:
             x=self.config.start_pose.x + self._rng.uniform(-0.35, 0.35),
             y=clamp(
                 self.config.start_pose.y + self._rng.uniform(-1.25, 1.25),
-                ROBOT_RADIUS_M,
-                FIELD_WIDTH_M - ROBOT_RADIUS_M,
+                self.config.robot_radius_m,
+                FIELD_WIDTH_M - self.config.robot_radius_m,
             ),
             heading=self._rng.uniform(-math.pi, math.pi),
         )
@@ -370,13 +376,17 @@ class ReefscapeEnv:
     def _integrate(self, vx_norm: float, vy_norm: float, omega_norm: float) -> None:
         state = self._require_state()
         dt = self.config.dt_s
-        target_vx = vx_norm * MAX_LINEAR_SPEED_MPS
-        target_vy = vy_norm * MAX_LINEAR_SPEED_MPS
-        target_omega = omega_norm * MAX_ANGULAR_SPEED_RADPS
+        target_vx = vx_norm * self.config.max_linear_speed_mps
+        target_vy = vy_norm * self.config.max_linear_speed_mps
+        target_omega = omega_norm * self.config.max_angular_speed_radps
 
-        state.vx_mps = approach(state.vx_mps, target_vx, MAX_LINEAR_ACCEL_MPS2 * dt)
-        state.vy_mps = approach(state.vy_mps, target_vy, MAX_LINEAR_ACCEL_MPS2 * dt)
-        state.omega_radps = approach(state.omega_radps, target_omega, MAX_ANGULAR_ACCEL_RADPS2 * dt)
+        state.vx_mps = approach(state.vx_mps, target_vx, self.config.max_linear_accel_mps2 * dt)
+        state.vy_mps = approach(state.vy_mps, target_vy, self.config.max_linear_accel_mps2 * dt)
+        state.omega_radps = approach(
+            state.omega_radps,
+            target_omega,
+            self.config.max_angular_accel_radps2 * dt,
+        )
 
         state.pose.x += state.vx_mps * dt
         state.pose.y += state.vy_mps * dt
@@ -386,8 +396,16 @@ class ReefscapeEnv:
         state = self._require_state()
         old_x = state.pose.x
         old_y = state.pose.y
-        state.pose.x = clamp(state.pose.x, ROBOT_RADIUS_M, FIELD_LENGTH_M - ROBOT_RADIUS_M)
-        state.pose.y = clamp(state.pose.y, ROBOT_RADIUS_M, FIELD_WIDTH_M - ROBOT_RADIUS_M)
+        state.pose.x = clamp(
+            state.pose.x,
+            self.config.robot_radius_m,
+            FIELD_LENGTH_M - self.config.robot_radius_m,
+        )
+        state.pose.y = clamp(
+            state.pose.y,
+            self.config.robot_radius_m,
+            FIELD_WIDTH_M - self.config.robot_radius_m,
+        )
         if state.pose.x != old_x:
             state.vx_mps = 0.0
         if state.pose.y != old_y:
@@ -410,9 +428,9 @@ class ReefscapeEnv:
             state.pose.y / FIELD_WIDTH_M,
             math.cos(state.pose.heading),
             math.sin(state.pose.heading),
-            state.vx_mps / MAX_LINEAR_SPEED_MPS,
-            state.vy_mps / MAX_LINEAR_SPEED_MPS,
-            state.omega_radps / MAX_ANGULAR_SPEED_RADPS,
+            state.vx_mps / self.config.max_linear_speed_mps,
+            state.vy_mps / self.config.max_linear_speed_mps,
+            state.omega_radps / self.config.max_angular_speed_radps,
             1.0 if state.has_coral else 0.0,
             coral_pose.x / FIELD_LENGTH_M,
             coral_pose.y / FIELD_WIDTH_M,
@@ -428,8 +446,8 @@ class ReefscapeEnv:
             state.other_robot_pose.y / FIELD_WIDTH_M,
             math.cos(state.other_robot_pose.heading),
             math.sin(state.other_robot_pose.heading),
-            state.other_robot_vx_mps / MAX_LINEAR_SPEED_MPS,
-            state.other_robot_vy_mps / MAX_LINEAR_SPEED_MPS,
+            state.other_robot_vx_mps / self.config.max_linear_speed_mps,
+            state.other_robot_vy_mps / self.config.max_linear_speed_mps,
             other_dx / FIELD_LENGTH_M,
             other_dy / FIELD_WIDTH_M,
             math.hypot(other_dx, other_dy) / FIELD_DIAGONAL_M,
@@ -595,7 +613,9 @@ class ReefscapeEnv:
             if not self.config.other_robot_enabled:
                 return pose, next_index
             min_spawn_distance = (
-                ROBOT_RADIUS_M + OTHER_ROBOT_RADIUS_M + self.config.other_robot_clearance_m
+                self.config.robot_radius_m
+                + self.config.other_robot_radius_m
+                + self.config.other_robot_clearance_m
             )
             if robot_pose.distance_to(pose) >= min_spawn_distance:
                 return pose, next_index
@@ -632,9 +652,19 @@ class ReefscapeEnv:
         state = self.state
         variant = state.other_robot_path_variant if state is not None else 0
         if variant == 1:
-            return _offset_path(BLUE_SIDE_OTHER_ROBOT_PATH, dx=0.45, dy=0.0)
+            return _offset_path(
+                BLUE_SIDE_OTHER_ROBOT_PATH,
+                dx=0.45,
+                dy=0.0,
+                radius=self.config.other_robot_radius_m,
+            )
         if variant == 2:
-            return _offset_path(BLUE_SIDE_OTHER_ROBOT_PATH, dx=0.0, dy=-0.35)
+            return _offset_path(
+                BLUE_SIDE_OTHER_ROBOT_PATH,
+                dx=0.0,
+                dy=-0.35,
+                radius=self.config.other_robot_radius_m,
+            )
         return BLUE_SIDE_OTHER_ROBOT_PATH
 
     def _move_other_robot(self) -> None:
@@ -694,7 +724,8 @@ class ReefscapeEnv:
         state.other_robot_pose.x += vx_norm * speed * dt
         state.other_robot_pose.y += vy_norm * speed * dt
         state.other_robot_pose.heading = normalize_angle(
-            state.other_robot_pose.heading + omega_norm * MAX_ANGULAR_SPEED_RADPS * 0.6 * dt
+            state.other_robot_pose.heading
+            + omega_norm * self.config.max_angular_speed_radps * 0.6 * dt
         )
         self._clamp_other_robot_to_field()
         self._keep_other_robot_out_of_reef()
@@ -714,7 +745,7 @@ class ReefscapeEnv:
         dx = state.pose.x - center_x
         dy = state.pose.y - center_y
         distance = math.hypot(dx, dy)
-        min_distance = REEF_OBSTACLE_RADIUS_M + ROBOT_RADIUS_M + REEF_CLEARANCE_M
+        min_distance = REEF_OBSTACLE_RADIUS_M + self.config.robot_radius_m + REEF_CLEARANCE_M
         if distance >= min_distance:
             return 0.0
 
@@ -734,13 +765,13 @@ class ReefscapeEnv:
         state = self._require_state()
         state.other_robot_pose.x = clamp(
             state.other_robot_pose.x,
-            ROBOT_RADIUS_M,
-            FIELD_LENGTH_M / 2.0 - ROBOT_RADIUS_M,
+            self.config.other_robot_radius_m,
+            FIELD_LENGTH_M / 2.0 - self.config.other_robot_radius_m,
         )
         state.other_robot_pose.y = clamp(
             state.other_robot_pose.y,
-            ROBOT_RADIUS_M,
-            FIELD_WIDTH_M - ROBOT_RADIUS_M,
+            self.config.other_robot_radius_m,
+            FIELD_WIDTH_M - self.config.other_robot_radius_m,
         )
 
     def _keep_other_robot_out_of_reef(self) -> None:
@@ -749,7 +780,7 @@ class ReefscapeEnv:
         dx = state.other_robot_pose.x - center_x
         dy = state.other_robot_pose.y - center_y
         distance = math.hypot(dx, dy)
-        min_distance = REEF_OBSTACLE_RADIUS_M + OTHER_ROBOT_RADIUS_M + REEF_CLEARANCE_M
+        min_distance = REEF_OBSTACLE_RADIUS_M + self.config.other_robot_radius_m + REEF_CLEARANCE_M
         if distance >= min_distance:
             return
         if distance < 1e-6:
@@ -769,7 +800,7 @@ class ReefscapeEnv:
         dx = state.pose.x - state.other_robot_pose.x
         dy = state.pose.y - state.other_robot_pose.y
         distance = math.hypot(dx, dy)
-        hard_distance = ROBOT_RADIUS_M + OTHER_ROBOT_RADIUS_M
+        hard_distance = self.config.robot_radius_m + self.config.other_robot_radius_m
         soft_distance = hard_distance + self.config.other_robot_clearance_m
         state.other_robot_distance_m = distance
         if distance >= soft_distance:
@@ -795,13 +826,13 @@ class ReefscapeEnv:
         impact_speed = max(0.0, -(relative_vx * nx + relative_vy * ny))
         state.pose.x = clamp(
             state.other_robot_pose.x + nx * hard_distance,
-            ROBOT_RADIUS_M,
-            FIELD_LENGTH_M - ROBOT_RADIUS_M,
+            self.config.robot_radius_m,
+            FIELD_LENGTH_M - self.config.robot_radius_m,
         )
         state.pose.y = clamp(
             state.other_robot_pose.y + ny * hard_distance,
-            ROBOT_RADIUS_M,
-            FIELD_WIDTH_M - ROBOT_RADIUS_M,
+            self.config.robot_radius_m,
+            FIELD_WIDTH_M - self.config.robot_radius_m,
         )
         state.hit_other_robot = True
         state.other_robot_hits += 1
@@ -830,12 +861,16 @@ class ReefscapeEnv:
 
 
 def _offset_path(
-    path: tuple[tuple[float, float], ...], *, dx: float, dy: float
+    path: tuple[tuple[float, float], ...],
+    *,
+    dx: float,
+    dy: float,
+    radius: float = OTHER_ROBOT_RADIUS_M,
 ) -> tuple[tuple[float, float], ...]:
     return tuple(
         (
-            clamp(x + dx, ROBOT_RADIUS_M, FIELD_LENGTH_M / 2.0 - ROBOT_RADIUS_M),
-            clamp(y + dy, ROBOT_RADIUS_M, FIELD_WIDTH_M - ROBOT_RADIUS_M),
+            clamp(x + dx, radius, FIELD_LENGTH_M / 2.0 - radius),
+            clamp(y + dy, radius, FIELD_WIDTH_M - radius),
         )
         for x, y in path
     )

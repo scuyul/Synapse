@@ -25,6 +25,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "modelOut": "models/reefscape_ppo",
     "resumeFrom": "",
     "device": "cuda",
+    "robotProfile": "sim",
     "nEnvs": 8,
     "nSteps": 512,
     "batchSize": 1024,
@@ -58,6 +59,7 @@ RUN_PRESETS: dict[str, dict[str, Any]] = {
     "simple": {
         "timesteps": 100_000,
         "device": "cuda",
+        "robotProfile": "2025-robot",
         "nEnvs": 8,
         "nSteps": 512,
         "batchSize": 1024,
@@ -132,12 +134,14 @@ STRING_FIELDS = {
     "modelOut",
     "resumeFrom",
     "device",
+    "robotProfile",
     "checkpointDir",
     "metricsOut",
     "bestModelOut",
     "evalMetricsOut",
 }
 DEVICE_CHOICES = {"auto", "cuda", "cpu"}
+ROBOT_PROFILE_CHOICES = {"sim", "2025-robot"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -188,6 +192,8 @@ def normalize_config(payload: dict[str, Any] | None) -> dict[str, Any]:
 
     if config["device"] not in DEVICE_CHOICES:
         raise ValueError("device must be auto, cuda, or cpu")
+    if config["robotProfile"] not in ROBOT_PROFILE_CHOICES:
+        raise ValueError("robotProfile must be sim or 2025-robot")
     if config["timesteps"] < 0:
         raise ValueError("timesteps must be >= 0")
     for key in (
@@ -255,6 +261,10 @@ def validation_report(
         )
     if config["device"] == "cpu":
         warnings.append("CPU is valid, but CUDA should be used for real training runs.")
+    if config["robotProfile"] == "2025-robot":
+        warnings.append(
+            "2025 robot profile changes training dynamics; retrain or resume only from a compatible model."
+        )
     if rollout_size < 2:
         errors.append("rollout size must be at least 2")
     if config["batchSize"] > rollout_size:
@@ -362,6 +372,8 @@ def build_train_command(config: dict[str, Any]) -> list[str]:
         config["modelOut"],
         "--device",
         config["device"],
+        "--robot-profile",
+        config["robotProfile"],
         "--n-envs",
         str(config["nEnvs"]),
         "--n-steps",
@@ -1602,6 +1614,12 @@ INDEX_HTML = r"""<!doctype html>
                     <option value="cpu">cpu</option>
                   </select>
                 </label>
+                <label>Robot profile
+                  <select data-key="robotProfile">
+                    <option value="sim">sim</option>
+                    <option value="2025-robot">2025 robot code</option>
+                  </select>
+                </label>
                 <label class="wide">Model output
                   <input data-key="modelOut" type="text">
                 </label>
@@ -1859,6 +1877,7 @@ INDEX_HTML = r"""<!doctype html>
       const tips = {
         timesteps: "Total PPO timesteps. Use 0 to train until stopped.",
         device: "CUDA is the default and recommended device; CPU is only a fallback.",
+        robotProfile: "Use sim defaults or copied 2025 robot-code drivetrain constants.",
         modelOut: "Output path without .zip. Structured runs override this on launch.",
         resumeFrom: "Existing .zip model/checkpoint to continue from.",
         structuredRun: "Create runs/<timestamp>/ with config, metrics, checkpoints, and model files.",
@@ -1900,9 +1919,16 @@ INDEX_HTML = r"""<!doctype html>
           return;
         }
         setWarnings(validation.warnings || []);
+        const config = readForm();
+        if (config.robotProfile === "2025-robot") {
+          const confirmed = window.confirm(
+            "The 2025 robot profile changes simulator dynamics. This should use a new retrain or a compatible checkpoint. Continue?"
+          );
+          if (!confirmed) return;
+        }
         await api("/api/start", {
           method: "POST",
-          body: JSON.stringify(readForm())
+          body: JSON.stringify(config)
         });
         await refresh();
       } catch (error) {

@@ -1,0 +1,112 @@
+{
+  "name": "2025",
+  "sourceUrl": "https://cad.onshape.com/documents/7896b49e96c8855f0c12cc66/w/ddfadf70f70a2e19a3fa31f6/e/8e2ca1d70cd4e0c239c33cb4",
+  "rotations": [
+    {
+      "axis": "x",
+      "degrees": 90
+    },
+    {
+      "axis": "z",
+      "degrees": 90
+    }
+  ],
+  "position": [
+    0,
+    0,
+    0
+  ],
+  "cameras": [
+    {
+      "name": "limelight-front",
+      "rotations": [
+        {
+          "axis": "z",
+          "degrees": -20.0
+        }
+      ],
+      "position": [
+        -0.120,
+        0.2262,
+        0.3178
+      ],
+      "resolution": [
+        1280,
+        960
+      ],
+      "fov": 80
+    },
+    {
+      "name": "limelight-back",
+      "rotations": [
+        {
+          "axis": "z",
+          "degrees": 180
+        }
+      ],
+      "position": [
+        -0.1895,
+        0.0508,
+        0.6493
+      ],
+      "resolution": [
+        1280,
+        960
+      ],
+      "fov": 80
+    }
+  ],
+  "components": [
+    {
+      "zeroedRotations": [
+        {
+          "axis": "x",
+          "degrees": 90
+        },
+        {
+          "axis": "z",
+          "degrees": 90
+        }
+      ],
+      "zeroedPosition": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "zeroedRotations": [
+        {
+          "axis": "x",
+          "degrees": 90
+        },
+        {
+          "axis": "z",
+          "degrees": 90
+        }
+      ],
+      "zeroedPosition": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "zeroedRotations": [
+        {
+          "axis": "x",
+          "degrees": 90
+        },
+        {
+          "axis": "z",
+          "degrees": 90
+        }
+      ],
+      "zeroedPosition": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
