@@ -121,7 +121,13 @@ INT_FIELDS = {
     "evalEpisodes",
 }
 FLOAT_FIELDS = {"learningRate"}
-BOOL_FIELDS = {"heuristicPretrain", "advantageScope", "variedDefense", "structuredRun", "checkpointEval"}
+BOOL_FIELDS = {
+    "heuristicPretrain",
+    "advantageScope",
+    "variedDefense",
+    "structuredRun",
+    "checkpointEval",
+}
 STRING_FIELDS = {
     "modelOut",
     "resumeFrom",
@@ -263,13 +269,17 @@ def validation_report(
         if checkpoint_dir.exists() and checkpoint_dir.is_file():
             errors.append("checkpoint directory points at a file")
         if config["checkpointEverySteps"] < rollout_size:
-            warnings.append("checkpoint interval is smaller than one rollout; use a larger interval.")
+            warnings.append(
+                "checkpoint interval is smaller than one rollout; use a larger interval."
+            )
     if config["resumeFrom"]:
         resume_path = _resolve_repo_path(config["resumeFrom"])
         if not resume_path.exists():
             errors.append(f"resume checkpoint was not found: {config['resumeFrom']}")
     if config["timesteps"] and config["timesteps"] < rollout_size:
-        warnings.append("timesteps is smaller than one rollout; PPO may still collect a full rollout.")
+        warnings.append(
+            "timesteps is smaller than one rollout; PPO may still collect a full rollout."
+        )
     if config["metricsEverySteps"] > max(1, config["timesteps"] or config["metricsEverySteps"]):
         warnings.append("metrics interval is larger than the planned run.")
     if config["checkpointEval"] and config["checkpointEverySteps"] <= 0:
@@ -865,7 +875,9 @@ def _config_from_run(run_id: str) -> dict[str, Any]:
             config = dict(run.get("config", {}))
             stamp = time.strftime("%Y%m%d_%H%M%S")
             if not config.get("structuredRun", True):
-                config["modelOut"] = f"{config.get('modelOut', 'models/reefscape_ppo')}_copy_{stamp}"
+                config["modelOut"] = (
+                    f"{config.get('modelOut', 'models/reefscape_ppo')}_copy_{stamp}"
+                )
                 config["metricsOut"] = f"logs/studio/duplicate_{stamp}.jsonl"
             config["resumeFrom"] = ""
             return normalize_config(config)
@@ -983,7 +995,11 @@ def _ensure_within_artifacts(path: Path) -> None:
 
 
 def _open_model_folder(config: dict[str, Any]) -> dict[str, Any]:
-    folder = REPO_ROOT / "runs" if config["structuredRun"] else _resolve_repo_path(config["modelOut"]).parent
+    folder = (
+        REPO_ROOT / "runs"
+        if config["structuredRun"]
+        else _resolve_repo_path(config["modelOut"]).parent
+    )
     folder.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         os.startfile(str(folder))  # type: ignore[attr-defined]
