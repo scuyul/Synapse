@@ -1,8 +1,6 @@
 # 2025 Robot Code Snapshot
 
-This directory is a source snapshot copied from:
-
-`C:\Users\Scuyul\Documents\GitHub\2025-robot`
+This directory is a source snapshot copied from the 2025 robot project.
 
 Included:
 

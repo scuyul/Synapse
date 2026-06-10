@@ -24,10 +24,10 @@ timeout /t 2
 Start /max "" "C:\Program Files (x86)\FRC Driver Station\DriverStation.exe"
 
 ::Start twilightdash
-::cd "C:\Users\User\Documents\GitHub\2023-robot\TwighlightDash"
+::cd "<path-to-dashboard>"
 ::npm run start
 
-@REM "C:\Users\Blue Twilight\Desktop\chooseauto.txt"
+@REM "<path-to-chooseauto.txt>"
 
 timeout /t 30
 taskkill "notepad.exe"

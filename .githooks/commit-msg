@@ -1,0 +1,2 @@
+#!/bin/sh
+python scripts/commit_message_guard.py commit-msg "$1"
