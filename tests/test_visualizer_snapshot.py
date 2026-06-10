@@ -29,6 +29,8 @@ class VisualizerSnapshotTests(unittest.TestCase):
         self.assertIn(snapshot["match"]["targetLevel"], {"L1", "L2", "L3", "L4"})
         self.assertIn("intent", snapshot["ai"])
         self.assertIn("distanceM", snapshot["objective"])
+        self.assertIsInstance(snapshot["objective"]["goalIndex"], int)
+        self.assertIsInstance(snapshot["objective"]["sourceIndex"], int)
 
 
 if __name__ == "__main__":

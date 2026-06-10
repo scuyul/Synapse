@@ -96,6 +96,8 @@ def build_visualizer_snapshot(
             "pose": _pose(objective),
             "goalPose": _pose(goal),
             "coralPose": _pose(coral),
+            "goalIndex": state.current_goal_index,
+            "sourceIndex": state.current_source_index,
             "distanceM": info["objective_distance_m"],
         },
         "ai": {

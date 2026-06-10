@@ -220,15 +220,19 @@ INDEX_HTML = r"""<!doctype html>
   <title>REEFSCAPE 2025 Visualizer</title>
   <style>
     :root {
-      --bg: #f5f7f4;
+      --bg: #eef2ef;
       --surface: #ffffff;
       --ink: #16211f;
       --muted: #60706b;
       --line: #d8e0da;
-      --field: #e6f0e8;
+      --field: #dfece4;
+      --field-dark: #c9dbd1;
       --blue: #2458d4;
+      --blue-deep: #15327e;
       --red: #c03f36;
+      --red-deep: #84231f;
       --coral: #f28a46;
+      --coral-dark: #9d552a;
       --reef: #3d7469;
       --amber: #d7a12e;
       --purple: #6f5aa7;
@@ -252,6 +256,7 @@ INDEX_HTML = r"""<!doctype html>
       padding: 0 20px;
       border-bottom: 1px solid var(--line);
       background: var(--surface);
+      box-shadow: 0 1px 0 rgba(22,33,31,.04);
     }
     h1 {
       margin: 0;
@@ -271,8 +276,10 @@ INDEX_HTML = r"""<!doctype html>
       width: 100%;
       height: calc(100vh - 96px);
       min-height: 520px;
-      border: 1px solid var(--line);
-      background: var(--surface);
+      border: 1px solid #c9d5ce;
+      background: #f9fbfa;
+      box-shadow: 0 12px 28px rgba(30, 48, 42, .10);
+      overflow: hidden;
     }
     canvas {
       display: block;
@@ -309,6 +316,9 @@ INDEX_HTML = r"""<!doctype html>
       border-color: var(--blue);
       color: white;
     }
+    button:hover, select:hover {
+      border-color: #aebbb4;
+    }
     button.icon {
       width: 36px;
       padding: 0;
@@ -341,6 +351,7 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 6px;
       padding: 10px;
       min-height: 66px;
+      background: #fbfcfb;
     }
     .kpi strong {
       display: block;
@@ -373,6 +384,7 @@ INDEX_HTML = r"""<!doctype html>
       border-radius: 6px;
       color: var(--ink);
       background: #fbfcfb;
+      font-size: 13px;
     }
     .legend {
       display: grid;
@@ -562,25 +574,45 @@ INDEX_HTML = r"""<!doctype html>
 
       drawField(field, toPx, scale);
       drawTrafficPath(field, toPx);
+      drawVelocityTrail(latest.traffic.pose, latest.traffic.vxMps, latest.traffic.vyMps, "#c03f36", toPx, scale);
+      drawVelocityTrail(latest.robot.pose, latest.robot.vxMps, latest.robot.vyMps, "#2458d4", toPx, scale);
       drawObjective(latest, toPx, scale);
       drawReef(field, toPx, scale);
       drawStations(field, toPx, scale);
-      drawRobot(latest.traffic.pose, field.robotRadiusM, "#c03f36", "D", toPx, scale);
-      drawRobot(latest.robot.pose, field.robotRadiusM, "#2458d4", "AI", toPx, scale);
+      drawRobot(latest.traffic.pose, field.robotRadiusM, "#c03f36", "#84231f", "D", toPx, scale, latest.traffic.hardHit);
+      drawRobot(latest.robot.pose, field.robotRadiusM, "#2458d4", "#15327e", "AI", toPx, scale, latest.traffic.hit);
       drawCoral(latest.objective.coralPose, latest.robot.hasCoral, toPx, scale);
       drawAttention(latest.ai.attentionPose, toPx, scale);
+      drawFieldLabels(field, toPx);
     }
 
     function drawField(field, toPx, scale) {
       const topLeft = toPx({x: 0, y: field.widthM});
       const bottomRight = toPx({x: field.lengthM, y: 0});
-      ctx.fillStyle = "#e6f0e8";
+      const fieldWidth = bottomRight.x - topLeft.x;
+      const fieldHeight = bottomRight.y - topLeft.y;
+      ctx.fillStyle = "#dfece4";
       ctx.fillRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
-      ctx.strokeStyle = "#9fb2a7";
+      ctx.fillStyle = "rgba(255,255,255,.24)";
+      for (let band = 0; band < 8; band += 1) {
+        if (band % 2 === 0) {
+          ctx.fillRect(topLeft.x, topLeft.y + (fieldHeight / 8) * band, fieldWidth, fieldHeight / 8);
+        }
+      }
+      ctx.strokeStyle = "#8da397";
       ctx.lineWidth = 2;
       ctx.strokeRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
-      ctx.fillStyle = "rgba(36,88,212,.08)";
+      ctx.fillStyle = "rgba(36,88,212,.10)";
       ctx.fillRect(topLeft.x, topLeft.y, (bottomRight.x - topLeft.x) / 2, bottomRight.y - topLeft.y);
+      ctx.fillStyle = "rgba(192,63,54,.07)";
+      ctx.fillRect(topLeft.x + fieldWidth / 2, topLeft.y, fieldWidth / 2, fieldHeight);
+      const midA = toPx({x: field.lengthM / 2, y: 0});
+      const midB = toPx({x: field.lengthM / 2, y: field.widthM});
+      ctx.strokeStyle = "rgba(22,33,31,.34)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath(); ctx.moveTo(midA.x, midA.y); ctx.lineTo(midB.x, midB.y); ctx.stroke();
+      ctx.setLineDash([]);
       ctx.strokeStyle = "rgba(22,33,31,.18)";
       ctx.lineWidth = 1;
       for (let x = 1; x < field.lengthM; x += 1) {
@@ -593,13 +625,29 @@ INDEX_HTML = r"""<!doctype html>
         const b = toPx({x: field.lengthM, y});
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       }
-      ctx.fillStyle = "#60706b";
-      ctx.font = "12px Segoe UI, sans-serif";
-      ctx.fillText("Blue alliance 2025 REEFSCAPE training half", topLeft.x + 12, topLeft.y + 20);
+      drawWall(topLeft.x, topLeft.y, fieldWidth, fieldHeight);
+    }
+
+    function drawWall(x, y, width, height) {
+      ctx.fillStyle = "#273a35";
+      ctx.fillRect(x - 6, y - 6, width + 12, 6);
+      ctx.fillRect(x - 6, y + height, width + 12, 6);
+      ctx.fillRect(x - 6, y - 6, 6, height + 12);
+      ctx.fillRect(x + width, y - 6, 6, height + 12);
+      ctx.fillStyle = "#2458d4";
+      ctx.fillRect(x - 6, y - 6, width * 0.5 + 6, 6);
+      ctx.fillRect(x - 6, y + height, width * 0.5 + 6, 6);
+      ctx.fillStyle = "#c03f36";
+      ctx.fillRect(x + width * 0.5, y - 6, width * 0.5 + 6, 6);
+      ctx.fillRect(x + width * 0.5, y + height, width * 0.5 + 6, 6);
     }
 
     function drawReef(field, toPx, scale) {
       const c = toPx(field.reefCenter);
+      const activeGoal = latest.objective.goalIndex;
+      ctx.save();
+      ctx.shadowColor = "rgba(61,116,105,.28)";
+      ctx.shadowBlur = 12;
       ctx.beginPath();
       for (let i = 0; i < 6; i += 1) {
         const a = -Math.PI / 6 + i * Math.PI / 3;
@@ -613,24 +661,56 @@ INDEX_HTML = r"""<!doctype html>
       ctx.lineWidth = 2;
       ctx.fill();
       ctx.stroke();
+      ctx.restore();
       field.reefScoringPoses.forEach((pose, index) => {
         const p = toPx(pose);
+        ctx.strokeStyle = index === activeGoal ? "#d7a12e" : "rgba(61,116,105,.45)";
+        ctx.lineWidth = index === activeGoal ? 3 : 1.5;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = "#ffffff";
-        ctx.fill();
-        ctx.strokeStyle = "#3d7469";
+        ctx.moveTo(c.x, c.y);
+        ctx.lineTo(p.x, p.y);
         ctx.stroke();
+      });
+      field.reefScoringPoses.forEach((pose, index) => {
+        const p = toPx(pose);
+        const active = index === activeGoal;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, active ? 8 : 5, 0, Math.PI * 2);
+        ctx.fillStyle = active ? "#d7a12e" : "#ffffff";
+        ctx.fill();
+        ctx.strokeStyle = active ? "#7f5a12" : "#3d7469";
+        ctx.lineWidth = active ? 2 : 1;
+        ctx.stroke();
+        if (active) {
+          ctx.fillStyle = "#16211f";
+          ctx.font = "700 11px Segoe UI, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(latest.match.targetLevel, p.x, p.y - 13);
+          ctx.textAlign = "left";
+        }
       });
     }
 
     function drawStations(field, toPx, scale) {
-      field.coralStations.forEach((station) => {
+      field.coralStations.forEach((station, index) => {
         const p = toPx(station);
-        ctx.fillStyle = "#f28a46";
-        ctx.fillRect(p.x - 12, p.y - 18, 24, 36);
-        ctx.strokeStyle = "#9d552a";
-        ctx.strokeRect(p.x - 12, p.y - 18, 24, 36);
+        const active = index === latest.objective.sourceIndex && !latest.robot.hasCoral;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.fillStyle = active ? "#f28a46" : "#f6b27e";
+        ctx.strokeStyle = active ? "#7f3d15" : "#9d552a";
+        ctx.lineWidth = active ? 3 : 1.5;
+        roundRect(ctx, -18, -26, 36, 52, 5);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255,255,255,.48)";
+        for (let i = -1; i <= 1; i += 1) {
+          ctx.beginPath();
+          ctx.arc(i * 8, -4, 4, 0, Math.PI * 2);
+          ctx.arc(i * 8, 8, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
       });
     }
 
@@ -652,33 +732,83 @@ INDEX_HTML = r"""<!doctype html>
     function drawObjective(data, toPx, scale) {
       const robot = toPx(data.robot.pose);
       const objective = toPx(data.objective.pose);
-      ctx.strokeStyle = "rgba(215,161,46,.75)";
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(215,161,46,.32)";
+      ctx.lineWidth = 10;
       ctx.beginPath();
       ctx.moveTo(robot.x, robot.y);
       ctx.lineTo(objective.x, objective.y);
       ctx.stroke();
+      ctx.strokeStyle = "rgba(127,90,18,.88)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([12, 7]);
       ctx.beginPath();
-      ctx.arc(objective.x, objective.y, 10, 0, Math.PI * 2);
+      ctx.moveTo(robot.x, robot.y);
+      ctx.lineTo(objective.x, objective.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(objective.x, objective.y, 13, 0, Math.PI * 2);
       ctx.fillStyle = "#d7a12e";
       ctx.fill();
+      ctx.strokeStyle = "#7f5a12";
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
 
     function drawCoral(pose, carried, toPx, scale) {
-      if (carried) return;
+      if (carried) {
+        const robot = toPx(latest.robot.pose);
+        drawCoralPiece(robot.x + 12, robot.y - 12, 8);
+        return;
+      }
       const p = toPx(pose);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+      drawCoralPiece(p.x, p.y, 8);
+    }
+
+    function drawCoralPiece(x, y, size) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-0.55);
       ctx.fillStyle = "#f28a46";
+      ctx.strokeStyle = "#8f4a22";
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, -size * 1.2, -size * .55, size * 2.4, size * 1.1, 4);
       ctx.fill();
-      ctx.strokeStyle = "#9d552a";
       ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawVelocityTrail(pose, vx, vy, color, toPx, scale) {
+      const speed = Math.hypot(vx, vy);
+      if (speed < 0.08) return;
+      const p = toPx(pose);
+      const len = Math.min(58, speed * 12);
+      const angle = Math.atan2(-vy, vx);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(angle);
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-len, 0);
+      ctx.lineTo(-12, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(-22, -6);
+      ctx.lineTo(-22, 6);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.restore();
     }
 
     function drawAttention(pose, toPx, scale) {
       const p = toPx(pose);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
+      const pulse = 18 + Math.sin(Date.now() / 180) * 3;
+      ctx.arc(p.x, p.y, pulse, 0, Math.PI * 2);
       ctx.strokeStyle = "#6f5aa7";
       ctx.lineWidth = 3;
       ctx.stroke();
@@ -692,25 +822,35 @@ INDEX_HTML = r"""<!doctype html>
       ctx.stroke();
     }
 
-    function drawRobot(pose, radiusM, color, label, toPx, scale) {
+    function drawRobot(pose, radiusM, color, darkColor, label, toPx, scale, alert) {
       const p = toPx(pose);
       const r = Math.max(14, radiusM * scale);
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(-pose.heading);
+      if (alert) {
+        ctx.shadowColor = "rgba(183,56,56,.62)";
+        ctx.shadowBlur = 18;
+      }
+      ctx.fillStyle = darkColor;
+      roundRect(ctx, -r * 1.08, -r * 0.88, r * 2.16, r * 1.76, 7);
+      ctx.fill();
       ctx.fillStyle = color;
       ctx.strokeStyle = "#16211f";
       ctx.lineWidth = 2;
-      roundRect(ctx, -r, -r * 0.78, r * 2, r * 1.56, 5);
+      roundRect(ctx, -r * .86, -r * 0.66, r * 1.72, r * 1.32, 5);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = "#ffffff";
       ctx.beginPath();
-      ctx.moveTo(r * 0.95, 0);
-      ctx.lineTo(r * 0.35, -r * 0.34);
-      ctx.lineTo(r * 0.35, r * 0.34);
+      ctx.moveTo(r * 0.82, 0);
+      ctx.lineTo(r * 0.25, -r * 0.30);
+      ctx.lineTo(r * 0.25, r * 0.30);
       ctx.closePath();
       ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.30)";
+      ctx.fillRect(-r * .55, -r * .40, r * .28, r * .80);
+      ctx.fillRect(-r * .08, -r * .40, r * .28, r * .80);
       ctx.restore();
       ctx.fillStyle = "#ffffff";
       ctx.font = "700 12px Segoe UI, sans-serif";
@@ -719,6 +859,15 @@ INDEX_HTML = r"""<!doctype html>
       ctx.fillText(label, p.x, p.y);
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
+    }
+
+    function drawFieldLabels(field, toPx) {
+      const left = toPx({x: 0.35, y: field.widthM - 0.35});
+      const right = toPx({x: field.lengthM - 2.15, y: field.widthM - 0.35});
+      ctx.fillStyle = "rgba(22,33,31,.65)";
+      ctx.font = "700 12px Segoe UI, sans-serif";
+      ctx.fillText("BLUE ALLIANCE", left.x, left.y);
+      ctx.fillText("FULL FIELD SCALE", right.x, right.y);
     }
 
     function roundRect(context, x, y, w, h, r) {
