@@ -1,5 +1,6 @@
 # REEFSCAPE RL Simulator
 (Note: This was made by over-caffeinated highschoolers and chatgpt things are: bad, broken, and violently vibe coded. Enter at your own risk)
+
 This is a prototype for training an RL policy to drive a robot in a simplified FRC 2025 REEFSCAPE-style task.
 
 The current simulator is intentionally small:
