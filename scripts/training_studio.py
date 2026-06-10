@@ -1794,7 +1794,9 @@ INDEX_HTML = r"""<!doctype html>
       {key: "train/entropy_loss", label: "Entropy", color: "#9b4d57"},
       {key: "time/fps", label: "FPS", color: "#4f7f87"},
       {key: "sim/latest_other_robot_hits", label: "Collisions", color: "#b5473f"},
-      {key: "sim/latest_scored_coral", label: "Scored coral", color: "#476f3f"}
+      {key: "sim/latest_scored_coral", label: "Scored coral", color: "#476f3f"},
+      {key: "sim/latest_target_level_code", label: "Target score level", color: "#ff8a00"},
+      {key: "sim/latest_scored_level_code", label: "Scored level", color: "#f6ff00"}
     ];
     let defaults = {};
     let lastLogLength = 0;

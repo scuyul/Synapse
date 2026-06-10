@@ -38,7 +38,7 @@ class GymnasiumReefscapeEnv(gym.Env):
             )
         )
         self.action_adapter = ResidualHeuristicActionAdapter() if residual_heuristic else None
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(5,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(6,), dtype=np.float32)
         observation_low, observation_high = _observation_bounds(self.env.config)
         self.observation_space = spaces.Box(
             low=observation_low,
@@ -88,6 +88,8 @@ def _observation_bounds(config: ReefscapeEnvConfig) -> tuple[np.ndarray, np.ndar
         "objective_distance_norm": (0.0, 1.0),
         "time_remaining_norm": (0.0, 1.0),
         "scored_coral_norm": (0.0, 1.0),
+        "target_level_norm": (0.0, 1.0),
+        "target_level_points_norm": (0.0, 1.0),
         "other_robot_x_norm": (0.0, 1.0),
         "other_robot_y_norm": (0.0, 1.0),
         "other_robot_heading_cos": (-1.0, 1.0),

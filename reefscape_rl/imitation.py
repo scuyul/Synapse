@@ -44,7 +44,7 @@ def pretrain_from_heuristic(model, config: ImitationConfig) -> None:
             )
             distribution = model.policy.get_distribution(batch_obs)
             predicted_actions = distribution.mode()
-            weights = torch.tensor([1.0, 1.0, 0.5, 60.0, 60.0], device=device)
+            weights = torch.tensor([1.0, 1.0, 0.5, 60.0, 60.0, 8.0], device=device)
             loss = ((predicted_actions - batch_actions).pow(2) * weights).mean()
             optimizer.zero_grad()
             loss.backward()

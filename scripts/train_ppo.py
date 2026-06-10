@@ -402,6 +402,8 @@ class MetricsJsonlCallback(BaseCallback):
         self._start_wall_time = 0.0
         self._latest_episode_reward: float | None = None
         self._latest_scored_coral: int | None = None
+        self._latest_target_level_code: int | None = None
+        self._latest_scored_level_code: int | None = None
         self._latest_other_robot_hits: int | None = None
         self._latest_other_robot_hard_hits: int | None = None
         self._latest_frozen_time_s: float | None = None
@@ -437,6 +439,8 @@ class MetricsJsonlCallback(BaseCallback):
         extras = {
             "sim/latest_episode_reward": self._latest_episode_reward,
             "sim/latest_scored_coral": self._latest_scored_coral,
+            "sim/latest_target_level_code": self._latest_target_level_code,
+            "sim/latest_scored_level_code": self._latest_scored_level_code,
             "sim/latest_other_robot_hits": self._latest_other_robot_hits,
             "sim/latest_other_robot_hard_hits": self._latest_other_robot_hard_hits,
             "sim/latest_frozen_time_s": self._latest_frozen_time_s,
@@ -460,6 +464,10 @@ class MetricsJsonlCallback(BaseCallback):
                     self._latest_episode_reward = reward
             if "scored_coral" in info:
                 self._latest_scored_coral = int(info["scored_coral"])
+            if "target_level_code" in info:
+                self._latest_target_level_code = int(info["target_level_code"])
+            if info.get("scored_level_code", 0):
+                self._latest_scored_level_code = int(info["scored_level_code"])
             if "other_robot_hits" in info:
                 self._latest_other_robot_hits = int(info["other_robot_hits"])
             if "other_robot_hard_hits" in info:

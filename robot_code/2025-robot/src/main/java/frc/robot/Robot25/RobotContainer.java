@@ -21,6 +21,7 @@ import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
+import frc.robot.Robot25.commands.AiModeCommand;
 import frc.robot.Robot25.commands.DriveCharacterization;
 import frc.robot.Robot25.commands.DriveCommands;
 import frc.robot.Robot25.commands.DriveCommands.ReefPositions;
@@ -278,6 +279,7 @@ public class RobotContainer extends frc.lib.RobotContainer {
     }, drive).ignoringDisable(true).withName("RobotContainer.driverZeroCommand"));
     driverController.rightBumper().whileTrue(DriveCommands.FlySnappyV2(drive));
     driverController.leftBumper().whileTrue(DriveCommands.FLYSnappySource(drive));
+    driverController.back().whileTrue(new AiModeCommand(drive, elevator, outtake));
 
     driverController.x().whileTrue(DriveCommands.AlgaeSnapper(drive));
     driverController.y()

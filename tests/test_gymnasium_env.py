@@ -28,6 +28,7 @@ class GymnasiumReefscapeEnvTests(unittest.TestCase):
         env = GymnasiumReefscapeEnv()
 
         self.assertEqual(env.observation_space.shape, (len(OBSERVATION_FIELDS),))
+        self.assertEqual(env.action_space.shape, (6,))
         self.assertTrue(np.isfinite(env.observation_space.low).all())
         self.assertTrue(np.isfinite(env.observation_space.high).all())
 

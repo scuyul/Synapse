@@ -122,6 +122,7 @@ def main() -> int:
                 sim_action = action
                 if action_adapter is not None:
                     sim_action = action_adapter.adapt(env, action)
+                publisher.publish_ai_command(sim_action)
                 obs, reward, terminated, truncated, info = env.step(sim_action)
                 episode_return += float(reward)
                 publisher.publish(env, reward=float(reward))

@@ -22,4 +22,5 @@ class ResidualHeuristicActionAdapter:
             clamp(base[2] + self.residual_scale * float(residual_action[2]), -1.0, 1.0),
             base[3],
             base[4],
+            clamp(float(residual_action[5]), -1.0, 1.0) if len(residual_action) > 5 else base[5],
         ]

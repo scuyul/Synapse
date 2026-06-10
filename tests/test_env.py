@@ -61,6 +61,23 @@ class ReefscapeEnvTests(unittest.TestCase):
         self.assertEqual(info["scored_coral"], 1)
         self.assertEqual(info["event_code"], 2)
 
+    def test_policy_can_choose_lower_scoring_level(self) -> None:
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
+        env.reset(seed=1)
+        goal = env.current_goal_pose()
+        env.state.pose = Pose2d(goal.x, goal.y, goal.heading)
+        env.state.has_coral = True
+
+        info = {}
+        for _ in range(20):
+            _, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 1.0, -0.75])
+            if info["event_code"] == 2:
+                break
+
+        self.assertEqual(info["scored_level"], "L1")
+        self.assertEqual(info["scored_level_code"], 1)
+        self.assertEqual(info["scored_points"], 2)
+
     def test_robot_is_pushed_out_of_reef_keepout(self) -> None:
         env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False))
         env.reset(seed=1)

@@ -7,10 +7,11 @@ The API mirrors Gymnasium's reset/step shape while staying dependency-free:
 
 Actions are normalized floats:
 
-    [vx, vy, omega, intake, score]
+    [vx, vy, omega, intake, score, score_level]
 
 where vx/vy are field-relative translation commands, omega is a rotation
-command, and intake/score are thresholded at > 0.5.
+command, intake/score are thresholded at > 0.5, and score_level selects
+L1-L4. Five-value legacy actions are still accepted and use target_level.
 """
 
 from __future__ import annotations
@@ -72,6 +73,8 @@ OBSERVATION_FIELDS = (
     "objective_distance_norm",
     "time_remaining_norm",
     "scored_coral_norm",
+    "target_level_norm",
+    "target_level_points_norm",
     "other_robot_x_norm",
     "other_robot_y_norm",
     "other_robot_heading_cos",
@@ -86,6 +89,25 @@ OBSERVATION_FIELDS = (
 OTHER_ROBOT_SPEED_SCALE_MIN = 0.55
 OTHER_ROBOT_SPEED_SCALE_MAX = 1.65
 OTHER_ROBOT_PATH_VARIANT_COUNT = 3
+SCORE_LEVELS = ("L1", "L2", "L3", "L4")
+SCORE_LEVEL_TRIGGER_RADIUS_M = {
+    "L1": 0.34,
+    "L2": 0.28,
+    "L3": 0.24,
+    "L4": SCORE_TRIGGER_RADIUS_M,
+}
+SCORE_LEVEL_HEADING_TOLERANCE_RAD = {
+    "L1": math.radians(120.0),
+    "L2": math.radians(95.0),
+    "L3": math.radians(85.0),
+    "L4": SCORE_HEADING_TOLERANCE_RAD,
+}
+SCORE_LEVEL_DURATION_S = {
+    "L1": 0.12,
+    "L2": 0.18,
+    "L3": 0.22,
+    "L4": SCORE_DURATION_S,
+}
 
 
 @dataclass(slots=True)
@@ -138,6 +160,7 @@ class ReefscapeState:
     omega_radps: float
     has_coral: bool
     scored_coral: int
+    target_level: str
     total_reward: float
     current_source_index: int
     current_goal_index: int
@@ -170,7 +193,7 @@ class ReefscapeEnv:
     """Coral-cycle environment for the blue alliance side of REEFSCAPE."""
 
     observation_fields = OBSERVATION_FIELDS
-    action_fields = ("vx_norm", "vy_norm", "omega_norm", "intake", "score")
+    action_fields = ("vx_norm", "vy_norm", "omega_norm", "intake", "score", "score_level")
 
     def __init__(self, config: ReefscapeEnvConfig | None = None):
         self.config = config or ReefscapeEnvConfig()
@@ -197,6 +220,7 @@ class ReefscapeEnv:
             omega_radps=0.0,
             has_coral=False,
             scored_coral=0,
+            target_level=self.config.target_level,
             total_reward=0.0,
             current_source_index=source_index,
             current_goal_index=goal_index,
@@ -232,14 +256,21 @@ class ReefscapeEnv:
         self, action: Sequence[float]
     ) -> tuple[list[float], float, bool, bool, dict[str, Any]]:
         state = self._require_state()
-        if len(action) != 5:
-            raise ValueError(f"Expected 5 action values, got {len(action)}")
+        if len(action) not in (5, 6):
+            raise ValueError(f"Expected 5 or 6 action values, got {len(action)}")
 
         action_vx = clamp(float(action[0]), -1.0, 1.0)
         action_vy = clamp(float(action[1]), -1.0, 1.0)
         action_omega = clamp(float(action[2]), -1.0, 1.0)
         wants_intake = float(action[3]) > 0.5
         wants_score = float(action[4]) > 0.5
+        requested_level = (
+            self._decode_score_level_action(float(action[5]))
+            if len(action) == 6
+            else state.target_level
+        )
+        if state.has_coral and not state.is_scoring:
+            state.target_level = requested_level
         if self.config.auto_mechanisms:
             wants_intake = wants_intake or (not state.has_coral and self._can_intake())
             wants_score = wants_score or (state.has_coral and self._can_score())
@@ -247,6 +278,7 @@ class ReefscapeEnv:
         reward = self.config.timestep_penalty
         event_code = 0
         scored_points = 0
+        scored_level = ""
         state.is_intaking = False
         state.is_scoring = False
         state.hit_other_robot = False
@@ -277,15 +309,17 @@ class ReefscapeEnv:
             reward += self.config.hold_action_reward
             event_code = 4
             mechanism_active = True
-            if state.score_progress_s >= self.config.score_duration_s:
+            if state.score_progress_s >= self._score_duration_s():
                 state.has_coral = False
                 state.score_progress_s = 0.0
                 state.scored_coral += 1
-                scored_points = SCORING_POINTS_TELEOP[self.config.target_level]
+                scored_level = state.target_level
+                scored_points = SCORING_POINTS_TELEOP[state.target_level]
                 reward += float(scored_points)
                 event_code = 2
                 state.current_source_index = self._nearest_source_index(state.pose)
                 state.current_goal_index = self._next_goal_index()
+                state.target_level = self._next_smart_target_level()
         else:
             if wants_intake:
                 reward += self.config.invalid_action_penalty
@@ -326,7 +360,11 @@ class ReefscapeEnv:
 
         terminated = state.scored_coral >= self.config.max_coral_scored
         truncated = state.time_s >= self.config.episode_duration_s - 1e-9
-        info = self._info(event_code=event_code, scored_points=scored_points)
+        info = self._info(
+            event_code=event_code,
+            scored_points=scored_points,
+            scored_level=scored_level,
+        )
         return self._observation(), reward, terminated, truncated, info
 
     def current_objective_pose(self) -> Pose2d:
@@ -442,6 +480,8 @@ class ReefscapeEnv:
             max(0.0, self.config.episode_duration_s - state.time_s)
             / self.config.episode_duration_s,
             state.scored_coral / max(1, self.config.max_coral_scored),
+            self._level_norm(state.target_level),
+            SCORING_POINTS_TELEOP[state.target_level] / max(SCORING_POINTS_TELEOP.values()),
             state.other_robot_pose.x / FIELD_LENGTH_M,
             state.other_robot_pose.y / FIELD_WIDTH_M,
             math.cos(state.other_robot_pose.heading),
@@ -453,7 +493,13 @@ class ReefscapeEnv:
             math.hypot(other_dx, other_dy) / FIELD_DIAGONAL_M,
         ]
 
-    def _info(self, *, event_code: int, scored_points: int = 0) -> dict[str, Any]:
+    def _info(
+        self,
+        *,
+        event_code: int,
+        scored_points: int = 0,
+        scored_level: str = "",
+    ) -> dict[str, Any]:
         state = self._require_state()
         coral_pose = self.current_coral_pose()
         goal_pose = self.current_goal_pose()
@@ -461,20 +507,23 @@ class ReefscapeEnv:
             "time_s": state.time_s,
             "event_code": event_code,
             "scored_points": scored_points,
+            "scored_level": scored_level,
+            "scored_level_code": self._level_code(scored_level) if scored_level else 0,
             "scored_coral": state.scored_coral,
             "has_coral": state.has_coral,
             "total_reward": state.total_reward,
             "robot_pose": state.pose,
             "coral_pose": coral_pose,
             "goal_pose": goal_pose,
-            "target_level": self.config.target_level,
+            "target_level": state.target_level,
+            "target_level_code": self._level_code(state.target_level),
             "objective_distance_m": self._objective_distance(),
             "intake_progress_s": state.intake_progress_s,
             "score_progress_s": state.score_progress_s,
             "is_intaking": state.is_intaking,
             "is_scoring": state.is_scoring,
             "intake_duration_s": self.config.intake_duration_s,
-            "score_duration_s": self.config.score_duration_s,
+            "score_duration_s": self._score_duration_s(),
             "other_robot_pose": state.other_robot_pose,
             "other_robot_vx_mps": state.other_robot_vx_mps,
             "other_robot_vy_mps": state.other_robot_vy_mps,
@@ -505,6 +554,33 @@ class ReefscapeEnv:
         state = self._require_state()
         return (state.current_goal_index + 1) % len(self.goal_poses)
 
+    def _score_duration_s(self) -> float:
+        state = self._require_state()
+        duration_scale = self.config.score_duration_s / SCORE_DURATION_S
+        return SCORE_LEVEL_DURATION_S[state.target_level] * duration_scale
+
+    def _decode_score_level_action(self, value: float) -> str:
+        scaled = (clamp(value, -1.0, 1.0) + 1.0) * 0.5
+        index = min(len(SCORE_LEVELS) - 1, max(0, int(scaled * len(SCORE_LEVELS))))
+        return SCORE_LEVELS[index]
+
+    def _level_code(self, level: str) -> int:
+        return SCORE_LEVELS.index(level) + 1
+
+    def _level_norm(self, level: str) -> float:
+        return (self._level_code(level) - 1) / max(1, len(SCORE_LEVELS) - 1)
+
+    def _next_smart_target_level(self) -> str:
+        state = self._require_state()
+        time_remaining = max(0.0, self.config.episode_duration_s - state.time_s)
+        if time_remaining < 8.0:
+            return "L1"
+        if time_remaining < 15.0:
+            return "L2"
+        if state.other_robot_distance_m < 0.95 or state.other_robot_hard_hits > 0:
+            return "L3"
+        return self.config.target_level
+
     def _nearest_source_index(self, pose: Pose2d) -> int:
         distances = [pose.distance_to(source) for source in BLUE_CORAL_STATIONS]
         return min(range(len(distances)), key=distances.__getitem__)
@@ -520,9 +596,11 @@ class ReefscapeEnv:
     def _can_score(self) -> bool:
         state = self._require_state()
         goal = self.current_goal_pose()
-        distance_ok = state.pose.distance_to(goal) <= SCORE_TRIGGER_RADIUS_M
+        distance_ok = (
+            state.pose.distance_to(goal) <= SCORE_LEVEL_TRIGGER_RADIUS_M[state.target_level]
+        )
         heading_error = abs(normalize_angle(goal.heading - state.pose.heading))
-        heading_ok = heading_error <= SCORE_HEADING_TOLERANCE_RAD
+        heading_ok = heading_error <= SCORE_LEVEL_HEADING_TOLERANCE_RAD[state.target_level]
         return distance_ok and heading_ok and self._is_settled()
 
     def _can_intake(self) -> bool:

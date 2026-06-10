@@ -15,6 +15,13 @@ from reefscape_rl.constants import (
 from reefscape_rl.env import ReefscapeEnv
 from reefscape_rl.geometry import clamp, normalize_angle
 
+SCORE_LEVEL_ACTIONS = {
+    "L1": -0.75,
+    "L2": -0.25,
+    "L3": 0.25,
+    "L4": 0.75,
+}
+
 
 class RandomPolicy:
     def __init__(self, seed: int | None = None):
@@ -27,6 +34,7 @@ class RandomPolicy:
             self._rng.uniform(-1.0, 1.0),
             1.0 if self._rng.random() < 0.05 else 0.0,
             1.0 if self._rng.random() < 0.05 else 0.0,
+            self._rng.uniform(-1.0, 1.0),
         ]
 
 
@@ -88,7 +96,21 @@ class HeuristicCyclePolicy:
                 omega_norm = 0.0
                 intake = 1.0
 
-        return [vx_norm, vy_norm, omega_norm, intake, score]
+        return [vx_norm, vy_norm, omega_norm, intake, score, self._score_level_action(env)]
+
+    def _score_level_action(self, env: ReefscapeEnv) -> float:
+        state = env.state
+        if state is None:
+            return SCORE_LEVEL_ACTIONS["L4"]
+
+        time_remaining = max(0.0, env.config.episode_duration_s - state.time_s)
+        if time_remaining < 8.0:
+            return SCORE_LEVEL_ACTIONS["L1"]
+        if time_remaining < 15.0:
+            return SCORE_LEVEL_ACTIONS["L2"]
+        if state.other_robot_distance_m < 0.95 or state.other_robot_hard_hits > 0:
+            return SCORE_LEVEL_ACTIONS["L3"]
+        return SCORE_LEVEL_ACTIONS[env.config.target_level]
 
     def _is_settled(self, env: ReefscapeEnv) -> bool:
         state = env.state

@@ -8,6 +8,8 @@ from typing import Sequence
 from reefscape_rl.env import ReefscapeEnv
 from reefscape_rl.geometry import Pose2d as SimPose2d
 
+SCORE_LEVEL_CODES = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
+
 
 @dataclass(slots=True)
 class AdvantageScopeNtPublisher:
@@ -28,6 +30,7 @@ class AdvantageScopeNtPublisher:
     total_reward_pub: object
     has_coral_pub: object
     scored_coral_pub: object
+    target_level_pub: object
     intake_progress_pub: object
     score_progress_pub: object
     is_intaking_pub: object
@@ -47,6 +50,12 @@ class AdvantageScopeNtPublisher:
     training_step_pub: object
     preview_return_pub: object
     preview_episode_pub: object
+    ai_vx_pub: object
+    ai_vy_pub: object
+    ai_omega_pub: object
+    ai_intake_pub: object
+    ai_score_pub: object
+    ai_score_level_pub: object
 
     @classmethod
     def start_server(cls, *, port: int = 5810) -> "AdvantageScopeNtPublisher":
@@ -87,6 +96,7 @@ class AdvantageScopeNtPublisher:
             total_reward_pub=inst.getDoubleTopic("/RL/TotalReward").publish(),
             has_coral_pub=inst.getBooleanTopic("/Sim/HasCoral").publish(),
             scored_coral_pub=inst.getIntegerTopic("/Sim/ScoredCoral").publish(),
+            target_level_pub=inst.getIntegerTopic("/Sim/TargetLevel").publish(),
             intake_progress_pub=inst.getDoubleTopic("/Sim/IntakeProgress").publish(),
             score_progress_pub=inst.getDoubleTopic("/Sim/ScoreProgress").publish(),
             is_intaking_pub=inst.getBooleanTopic("/Sim/IsIntaking").publish(),
@@ -108,6 +118,12 @@ class AdvantageScopeNtPublisher:
             training_step_pub=inst.getIntegerTopic("/RL/TrainingStep").publish(),
             preview_return_pub=inst.getDoubleTopic("/RL/PreviewEpisodeReturn").publish(),
             preview_episode_pub=inst.getIntegerTopic("/RL/PreviewEpisode").publish(),
+            ai_vx_pub=inst.getDoubleTopic("/AI/Command/vx").publish(),
+            ai_vy_pub=inst.getDoubleTopic("/AI/Command/vy").publish(),
+            ai_omega_pub=inst.getDoubleTopic("/AI/Command/omega").publish(),
+            ai_intake_pub=inst.getDoubleTopic("/AI/Command/intake").publish(),
+            ai_score_pub=inst.getDoubleTopic("/AI/Command/score").publish(),
+            ai_score_level_pub=inst.getDoubleTopic("/AI/Command/scoreLevel").publish(),
         )
 
     def apply_tunables(self, env: ReefscapeEnv) -> None:
@@ -131,6 +147,7 @@ class AdvantageScopeNtPublisher:
         self.total_reward_pub.set(float(state.total_reward))
         self.has_coral_pub.set(bool(state.has_coral))
         self.scored_coral_pub.set(int(state.scored_coral))
+        self.target_level_pub.set(int(SCORE_LEVEL_CODES.get(state.target_level, 4)))
         self.intake_progress_pub.set(float(state.intake_progress_s))
         self.score_progress_pub.set(float(state.score_progress_s))
         self.is_intaking_pub.set(bool(state.is_intaking))
@@ -143,6 +160,15 @@ class AdvantageScopeNtPublisher:
         self.other_robot_impact_speed_pub.set(float(state.other_robot_impact_speed_mps))
         self.frozen_time_pub.set(float(state.frozen_time_s))
         self.smoothness_reward_pub.set(float(state.smoothness_reward))
+        self.inst.flush()
+
+    def publish_ai_command(self, action: Sequence[float]) -> None:
+        self.ai_vx_pub.set(float(action[0]))
+        self.ai_vy_pub.set(float(action[1]))
+        self.ai_omega_pub.set(float(action[2]))
+        self.ai_intake_pub.set(float(action[3]))
+        self.ai_score_pub.set(float(action[4]))
+        self.ai_score_level_pub.set(float(_score_level_code_from_action(action)))
         self.inst.flush()
 
     def publish_training(
@@ -170,3 +196,10 @@ def _to_wpilib_poses(poses: Sequence[SimPose2d]):
 
 def _clamp_duration(value: float) -> float:
     return max(0.05, min(5.0, float(value)))
+
+
+def _score_level_code_from_action(action: Sequence[float]) -> int:
+    if len(action) <= 5:
+        return 4
+    scaled = (max(-1.0, min(1.0, float(action[5]))) + 1.0) * 0.5
+    return min(4, max(1, int(scaled * 4.0) + 1))
