@@ -1023,6 +1023,7 @@ INDEX_HTML = r"""<!doctype html>
       --muted: #c9b5dc;
       --line: #4b245c;
       --accent: #ff8a00;
+      --accent-glow: rgba(255, 138, 0, 0.42);
       --accent-strong: #8b2cff;
       --warn: #ffb020;
       --danger: #ff4d5e;
@@ -1041,6 +1042,7 @@ INDEX_HTML = r"""<!doctype html>
       --muted: #c8afd9;
       --line: #321243;
       --accent: #ff9f1c;
+      --accent-glow: rgba(255, 159, 28, 0.46);
       --accent-strong: #a855f7;
       --warn: #ffc247;
       --danger: #ff6675;
@@ -1057,7 +1059,7 @@ INDEX_HTML = r"""<!doctype html>
       font: 14px/1.45 "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
       color: var(--text);
       background:
-        linear-gradient(135deg, rgba(249, 115, 22, 0.10), rgba(124, 58, 237, 0.10)),
+        linear-gradient(135deg, rgba(255, 138, 0, 0.18), rgba(124, 58, 237, 0.16)),
         var(--bg);
     }
     button, input, select {
@@ -1072,13 +1074,24 @@ INDEX_HTML = r"""<!doctype html>
       cursor: pointer;
       transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
     }
-    button:hover { border-color: var(--accent); transform: translateY(-1px); }
+    button:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+      transform: translateY(-1px);
+    }
     button.primary {
-      color: #ffffff;
+      color: #1d0b00;
       border-color: var(--accent);
       background: var(--accent);
+      box-shadow: 0 0 18px var(--accent-glow);
+      font-weight: 800;
     }
-    button.primary:hover { background: var(--accent-strong); }
+    button.primary:hover {
+      color: #ffffff;
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 72%, var(--accent-strong));
+      box-shadow: 0 0 24px var(--accent-glow);
+    }
     button.danger {
       color: #ffffff;
       border-color: var(--danger);
@@ -1094,9 +1107,12 @@ INDEX_HTML = r"""<!doctype html>
       min-height: 100vh;
     }
     aside {
-      border-right: 1px solid var(--line);
-      background: color-mix(in srgb, var(--panel) 88%, var(--accent-strong));
+      border-right: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--panel) 82%, var(--accent-strong)), var(--panel)),
+        var(--panel);
       padding: 18px 16px;
+      box-shadow: inset -1px 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
     }
     .brand {
       display: grid;
@@ -1106,6 +1122,8 @@ INDEX_HTML = r"""<!doctype html>
     .brand strong {
       font-size: 18px;
       letter-spacing: 0;
+      color: var(--accent);
+      text-shadow: 0 0 18px var(--accent-glow);
     }
     .brand span {
       color: var(--muted);
@@ -1118,7 +1136,7 @@ INDEX_HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--panel);
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
     }
     .statusRow {
       display: flex;
@@ -1136,7 +1154,11 @@ INDEX_HTML = r"""<!doctype html>
       font-size: 12px;
       font-weight: 600;
     }
-    .pill.running { background: var(--accent); }
+    .pill.running {
+      color: #1d0b00;
+      background: var(--accent);
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
     .pill.stopped { background: var(--muted); }
     .sideActions {
       display: grid;
@@ -1162,6 +1184,7 @@ INDEX_HTML = r"""<!doctype html>
       width: 0%;
       height: 100%;
       background: var(--accent);
+      box-shadow: 0 0 14px var(--accent-glow);
     }
     main {
       min-width: 0;
@@ -1192,7 +1215,7 @@ INDEX_HTML = r"""<!doctype html>
       align-items: start;
     }
     .panel {
-      border: 1px solid var(--line);
+      border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
       border-radius: 8px;
       background: var(--panel);
       box-shadow: var(--shadow);
@@ -1205,12 +1228,15 @@ INDEX_HTML = r"""<!doctype html>
       gap: 10px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
-      background: color-mix(in srgb, var(--panel) 92%, var(--accent));
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--panel) 88%, var(--accent)), var(--panel));
+      box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 24%, transparent);
     }
     .panelHeader h2 {
       margin: 0;
       font-size: 15px;
       letter-spacing: 0;
+      color: var(--accent);
     }
     .settings {
       display: grid;
@@ -1232,7 +1258,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     legend {
       margin-bottom: 8px;
-      color: var(--accent-strong);
+      color: var(--accent);
       font-weight: 700;
     }
     .formGrid {
@@ -1246,7 +1272,8 @@ INDEX_HTML = r"""<!doctype html>
       gap: 8px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
-      background: color-mix(in srgb, var(--panel) 92%, var(--accent-strong));
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--panel) 84%, var(--accent)), var(--panel));
     }
     .toolbar select,
     .toolbar input {
@@ -1273,6 +1300,7 @@ INDEX_HTML = r"""<!doctype html>
     input:focus, select:focus {
       outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
       border-color: var(--accent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
     }
     .wide { grid-column: 1 / -1; }
     .switches {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -7,26 +8,46 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent
 PYTHON = sys.executable
+NEON_ORANGE = "\033[38;5;208m"
+HOT_ORANGE = "\033[38;5;202m"
+PURPLE = "\033[38;5;141m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+MENU_COLORS = (
+    "\033[38;5;51m",   # cyan
+    "\033[38;5;208m",  # orange
+    "\033[38;5;46m",   # green
+    "\033[38;5;201m",  # magenta
+    "\033[38;5;39m",   # blue
+    "\033[38;5;226m",  # yellow
+    "\033[38;5;129m",  # purple
+    "\033[38;5;196m",  # red
+    "\033[38;5;118m",  # lime
+    "\033[38;5;214m",  # amber
+    "\033[38;5;87m",   # aqua
+    "\033[38;5;165m",  # pink
+)
 
 
 def main() -> int:
+    color = supports_color()
     while True:
         print()
-        print("REEFSCAPE RL Control")
-        print("====================")
-        print("1. Open Training Studio (recommended)")
-        print("2. Simple CUDA train (recommended settings)")
-        print("3. Check CUDA / RTX 4060")
-        print("4. Run tests")
-        print("5. Watch heuristic simulator in AdvantageScope")
-        print("6. Train PPO from menu fallback")
-        print("7. Resume PPO from menu fallback")
-        print("8. Watch trained model in AdvantageScope")
-        print("9. Quick train smoke test")
-        print("10. Quick trained-model smoke run")
-        print("11. Generate rollout CSV log")
-        print("12. Exit")
-        choice = input("Select option: ").strip()
+        print(accent("REEFSCAPE RL Control", color, bold=True))
+        print(accent("====================", color))
+        print(menu_line("1", "Open Training Studio", "recommended", color, 0))
+        print(menu_line("2", "Simple CUDA train", "recommended settings", color, 1))
+        print(menu_line("3", "Check CUDA / RTX 4060", "", color, 2))
+        print(menu_line("4", "Run tests", "", color, 3))
+        print(menu_line("5", "Watch heuristic simulator in AdvantageScope", "", color, 4))
+        print(menu_line("6", "Train PPO from menu fallback", "", color, 5))
+        print(menu_line("7", "Resume PPO from menu fallback", "", color, 6))
+        print(menu_line("8", "Watch trained model in AdvantageScope", "", color, 7))
+        print(menu_line("9", "Quick train smoke test", "", color, 8))
+        print(menu_line("10", "Quick trained-model smoke run", "", color, 9))
+        print(menu_line("11", "Generate rollout CSV log", "", color, 10))
+        print(menu_line("12", "Exit", "", color, 11))
+        choice = input(accent("Select option: ", color)).strip()
 
         if choice == "1":
             run_training_studio()
@@ -53,7 +74,29 @@ def main() -> int:
         elif choice == "12":
             return 0
         else:
-            print("Invalid option.")
+            print(accent("Invalid option.", color))
+
+
+def supports_color() -> bool:
+    return sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def accent(text: str, enabled: bool, *, bold: bool = False) -> str:
+    if not enabled:
+        return text
+    prefix = f"{BOLD}{NEON_ORANGE}" if bold else NEON_ORANGE
+    return f"{prefix}{text}{RESET}"
+
+
+def menu_line(number: str, label: str, note: str, color: bool, index: int) -> str:
+    if not color:
+        suffix = f" ({note})" if note else ""
+        return f"{number}. {label}{suffix}"
+    item_color = MENU_COLORS[index % len(MENU_COLORS)]
+    number_text = f"{item_color}{BOLD}{number.rjust(2)}{RESET}"
+    label_text = f"{item_color}{label}{RESET}"
+    note_text = f" {HOT_ORANGE}[{note}]{RESET}" if note else ""
+    return f"{number_text}  {label_text}{note_text}"
 
 
 def run_live_heuristic() -> None:
