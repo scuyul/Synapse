@@ -47,9 +47,7 @@ def main() -> int:
     hard_hits: list[int] = []
 
     for episode in range(args.episodes):
-        env = ReefscapeEnv(
-            ReefscapeEnvConfig(randomize_start=not args.fixed_start)
-        )
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=not args.fixed_start))
         obs, _ = env.reset(seed=args.seed + episode)
         episode_return = 0.0
         while True:

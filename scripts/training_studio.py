@@ -326,9 +326,7 @@ class TrainingStudioState:
         self._finished_at: float | None = None
         self._return_code: int | None = None
         self._last_config = dict(DEFAULT_CONFIG)
-        self._metrics_path: Path | None = _resolve_repo_path(
-            DEFAULT_CONFIG["metricsOut"]
-        )
+        self._metrics_path: Path | None = _resolve_repo_path(DEFAULT_CONFIG["metricsOut"])
         self._run_id: str | None = None
 
     def start_training(self, payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -339,9 +337,7 @@ class TrainingStudioState:
         run_id = time.strftime("%Y%m%d_%H%M%S")
         env = dict(os.environ)
         env["PYTHONUNBUFFERED"] = "1"
-        creationflags = (
-            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-        )
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
 
         with self._lock:
             if self._process is not None and self._process.poll() is None:
@@ -400,9 +396,7 @@ class TrainingStudioState:
         cmd = _build_artifact_process(action, path)
         env = dict(os.environ)
         env["PYTHONUNBUFFERED"] = "1"
-        creationflags = (
-            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-        )
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
         with self._lock:
             if self._process is not None and self._process.poll() is None:
                 raise RuntimeError("another process is already running")
@@ -468,9 +462,7 @@ class TrainingStudioState:
             if process is not None and return_code is not None:
                 self._return_code = int(return_code)
             uptime_s = (
-                time.time() - self._started_at
-                if self._started_at is not None and running
-                else 0.0
+                time.time() - self._started_at if self._started_at is not None and running else 0.0
             )
             metrics_path = self._metrics_path
             payload = {
@@ -556,9 +548,7 @@ class TrainingStudioHandler(BaseHTTPRequestHandler):
                 self._send_json(self.server.state.start_training(payload))
             elif path == "/api/stop":
                 self._send_json(
-                    self.server.state.stop_training(
-                        mode=str(payload.get("mode", "graceful"))
-                    )
+                    self.server.state.stop_training(mode=str(payload.get("mode", "graceful")))
                 )
             elif path == "/api/preset":
                 self._send_json({"config": preset_config(str(payload.get("name", "")))})
@@ -573,13 +563,9 @@ class TrainingStudioHandler(BaseHTTPRequestHandler):
                     }
                 )
             elif path == "/api/config/delete":
-                self._send_json(
-                    {"savedConfigs": _delete_config(str(payload.get("name", "")))}
-                )
+                self._send_json({"savedConfigs": _delete_config(str(payload.get("name", "")))})
             elif path == "/api/run/duplicate":
-                self._send_json(
-                    {"config": _config_from_run(str(payload.get("id", "")))}
-                )
+                self._send_json({"config": _config_from_run(str(payload.get("id", "")))})
             elif path == "/api/compare":
                 run_ids = payload.get("runIds", [])
                 if not isinstance(run_ids, list):

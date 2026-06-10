@@ -105,6 +105,7 @@ def main() -> int:
     print(f"Using device: {device}")
     if device == "cuda":
         print(f"CUDA device: {torch.cuda.get_device_name(0)}")
+
     def make_env():
         return GymnasiumReefscapeEnv(
             config=None

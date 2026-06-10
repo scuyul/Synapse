@@ -22,9 +22,7 @@ else:
 class GymnasiumReefscapeEnvTests(unittest.TestCase):
     def setUp(self) -> None:
         if OPTIONAL_IMPORT_ERROR is not None:
-            self.skipTest(
-                f"Gymnasium dependencies are not installed: {OPTIONAL_IMPORT_ERROR}"
-            )
+            self.skipTest(f"Gymnasium dependencies are not installed: {OPTIONAL_IMPORT_ERROR}")
 
     def test_observation_space_has_finite_bounds(self) -> None:
         env = GymnasiumReefscapeEnv()

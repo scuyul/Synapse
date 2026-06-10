@@ -91,17 +91,11 @@ class AdvantageScopeNtPublisher:
             score_progress_pub=inst.getDoubleTopic("/Sim/ScoreProgress").publish(),
             is_intaking_pub=inst.getBooleanTopic("/Sim/IsIntaking").publish(),
             is_scoring_pub=inst.getBooleanTopic("/Sim/IsScoring").publish(),
-            other_robot_distance_pub=inst.getDoubleTopic(
-                "/Sim/OtherRobotDistance"
-            ).publish(),
+            other_robot_distance_pub=inst.getDoubleTopic("/Sim/OtherRobotDistance").publish(),
             hit_other_robot_pub=inst.getBooleanTopic("/Sim/HitOtherRobot").publish(),
-            hard_hit_other_robot_pub=inst.getBooleanTopic(
-                "/Sim/HardHitOtherRobot"
-            ).publish(),
+            hard_hit_other_robot_pub=inst.getBooleanTopic("/Sim/HardHitOtherRobot").publish(),
             other_robot_hits_pub=inst.getIntegerTopic("/Sim/OtherRobotHits").publish(),
-            other_robot_hard_hits_pub=inst.getIntegerTopic(
-                "/Sim/OtherRobotHardHits"
-            ).publish(),
+            other_robot_hard_hits_pub=inst.getIntegerTopic("/Sim/OtherRobotHardHits").publish(),
             other_robot_impact_speed_pub=inst.getDoubleTopic(
                 "/Sim/OtherRobotImpactSpeed"
             ).publish(),

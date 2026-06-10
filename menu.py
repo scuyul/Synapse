@@ -84,13 +84,15 @@ def run_live_heuristic() -> None:
 
 
 def run_training(*, smoke: bool = False, resume: bool = False) -> None:
-    timesteps = prompt_int(
-        "Training timesteps (0 = until Ctrl+C)", 256 if smoke else 100_000
+    timesteps = prompt_int("Training timesteps (0 = until Ctrl+C)", 256 if smoke else 100_000)
+    model_out = prompt_text(
+        "Model output path", "models/smoke_train_viz" if smoke else "models/reefscape_ppo"
     )
-    model_out = prompt_text("Model output path", "models/smoke_train_viz" if smoke else "models/reefscape_ppo")
     resume_from = ""
     if resume:
-        resume_from = prompt_text("Resume from model/checkpoint .zip", "models/reefscape_ppo_interrupted.zip")
+        resume_from = prompt_text(
+            "Resume from model/checkpoint .zip", "models/reefscape_ppo_interrupted.zip"
+        )
     device = prompt_choice("Device", "cuda", {"auto", "cuda", "cpu"})
     n_envs = prompt_int("Parallel envs", 2 if smoke else 8)
     n_steps = prompt_int("PPO rollout steps per env", 64 if smoke else 512)

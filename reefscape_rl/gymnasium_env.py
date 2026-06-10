@@ -38,9 +38,7 @@ class GymnasiumReefscapeEnv(gym.Env):
                 randomize_other_robot_behavior=True,
             )
         )
-        self.action_adapter = (
-            ResidualHeuristicActionAdapter() if residual_heuristic else None
-        )
+        self.action_adapter = ResidualHeuristicActionAdapter() if residual_heuristic else None
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(5,), dtype=np.float32)
         observation_low, observation_high = _observation_bounds(self.env.config)
         self.observation_space = spaces.Box(
@@ -119,7 +117,5 @@ def _observation_bounds(config: ReefscapeEnvConfig) -> tuple[np.ndarray, np.ndar
 
 
 def _other_robot_velocity_norm_bound(config: ReefscapeEnvConfig) -> float:
-    speed_scale = (
-        OTHER_ROBOT_SPEED_SCALE_MAX if config.randomize_other_robot_behavior else 1.0
-    )
+    speed_scale = OTHER_ROBOT_SPEED_SCALE_MAX if config.randomize_other_robot_behavior else 1.0
     return max(0.0, config.other_robot_speed_mps) * speed_scale / MAX_LINEAR_SPEED_MPS

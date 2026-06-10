@@ -7,17 +7,13 @@ import random
 
 from reefscape_rl.constants import (
     BLUE_REEF_CENTER,
-    FIELD_LENGTH_M,
     FIELD_WIDTH_M,
-    INTAKE_RADIUS_M,
     MAX_ANGULAR_SPEED_RADPS,
     MAX_LINEAR_SPEED_MPS,
-    OTHER_ROBOT_RADIUS_M,
     REEF_CLEARANCE_M,
     REEF_OBSTACLE_RADIUS_M,
     ROBOT_RADIUS_M,
     SCORE_HEADING_TOLERANCE_RAD,
-    SCORE_RADIUS_M,
 )
 from reefscape_rl.env import ReefscapeEnv
 from reefscape_rl.geometry import clamp, normalize_angle
@@ -219,6 +215,7 @@ class HeuristicCyclePolicy:
             ),
         )
 
+
 def _segment_intersects_circle(
     ax: float,
     ay: float,
@@ -246,4 +243,3 @@ def _with_min_command(value: float, minimum: float) -> float:
     if abs(value) >= minimum:
         return value
     return math.copysign(minimum, value)
-

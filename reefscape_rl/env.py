@@ -46,9 +46,8 @@ from reefscape_rl.constants import (
     REEF_OBSTACLE_RADIUS_M,
     REEF_SCORING_RADIUS_M,
     ROBOT_RADIUS_M,
-    SCORE_HEADING_TOLERANCE_RAD,
     SCORE_DURATION_S,
-    SCORE_RADIUS_M,
+    SCORE_HEADING_TOLERANCE_RAD,
     SCORE_TRIGGER_RADIUS_M,
     SCORING_POINTS_TELEOP,
 )
@@ -300,9 +299,7 @@ class ReefscapeEnv:
             event_code = 5
 
         objective_distance = self._objective_distance()
-        reward += self.config.progress_reward_scale * (
-            prev_objective_distance - objective_distance
-        )
+        reward += self.config.progress_reward_scale * (prev_objective_distance - objective_distance)
         reward += self._settle_reward(objective_distance)
         reward += self._smoothness_reward(
             action_vx,
@@ -379,9 +376,7 @@ class ReefscapeEnv:
 
         state.vx_mps = approach(state.vx_mps, target_vx, MAX_LINEAR_ACCEL_MPS2 * dt)
         state.vy_mps = approach(state.vy_mps, target_vy, MAX_LINEAR_ACCEL_MPS2 * dt)
-        state.omega_radps = approach(
-            state.omega_radps, target_omega, MAX_ANGULAR_ACCEL_RADPS2 * dt
-        )
+        state.omega_radps = approach(state.omega_radps, target_omega, MAX_ANGULAR_ACCEL_RADPS2 * dt)
 
         state.pose.x += state.vx_mps * dt
         state.pose.y += state.vy_mps * dt
@@ -397,7 +392,9 @@ class ReefscapeEnv:
             state.vx_mps = 0.0
         if state.pose.y != old_y:
             state.vy_mps = 0.0
-        return self.config.boundary_penalty if state.pose.x != old_x or state.pose.y != old_y else 0.0
+        return (
+            self.config.boundary_penalty if state.pose.x != old_x or state.pose.y != old_y else 0.0
+        )
 
     def _observation(self) -> list[float]:
         state = self._require_state()
@@ -508,17 +505,10 @@ class ReefscapeEnv:
         distance_ok = state.pose.distance_to(goal) <= SCORE_TRIGGER_RADIUS_M
         heading_error = abs(normalize_angle(goal.heading - state.pose.heading))
         heading_ok = heading_error <= SCORE_HEADING_TOLERANCE_RAD
-        return (
-            distance_ok
-            and heading_ok
-            and self._is_settled()
-        )
+        return distance_ok and heading_ok and self._is_settled()
 
     def _can_intake(self) -> bool:
-        return (
-            self._distance_to_source() <= INTAKE_RADIUS_M
-            and self._is_settled()
-        )
+        return self._distance_to_source() <= INTAKE_RADIUS_M and self._is_settled()
 
     def _is_settled(self) -> bool:
         state = self._require_state()
@@ -573,7 +563,9 @@ class ReefscapeEnv:
         delta_vx = action_vx - state.last_action_vx
         delta_vy = action_vy - state.last_action_vy
         delta_omega = action_omega - state.last_action_omega
-        jerk = math.sqrt(delta_vx * delta_vx + delta_vy * delta_vy + 0.35 * delta_omega * delta_omega)
+        jerk = math.sqrt(
+            delta_vx * delta_vx + delta_vy * delta_vy + 0.35 * delta_omega * delta_omega
+        )
         speed = math.hypot(state.vx_mps, state.vy_mps)
         moving_toward_objective = (
             speed > self.config.freeze_speed_threshold_mps
@@ -602,7 +594,9 @@ class ReefscapeEnv:
             pose = Pose2d(x, y, angle_to(x, y, next_x, next_y))
             if not self.config.other_robot_enabled:
                 return pose, next_index
-            min_spawn_distance = ROBOT_RADIUS_M + OTHER_ROBOT_RADIUS_M + self.config.other_robot_clearance_m
+            min_spawn_distance = (
+                ROBOT_RADIUS_M + OTHER_ROBOT_RADIUS_M + self.config.other_robot_clearance_m
+            )
             if robot_pose.distance_to(pose) >= min_spawn_distance:
                 return pose, next_index
         x, y = path[start_index]
@@ -615,9 +609,7 @@ class ReefscapeEnv:
         if not self.config.randomize_other_robot_behavior:
             return
         state.other_robot_direction = -1 if self._rng.random() < 0.5 else 1
-        state.other_robot_path_variant = self._rng.randrange(
-            OTHER_ROBOT_PATH_VARIANT_COUNT
-        )
+        state.other_robot_path_variant = self._rng.randrange(OTHER_ROBOT_PATH_VARIANT_COUNT)
         state.other_robot_speed_scale = self._rng.uniform(
             OTHER_ROBOT_SPEED_SCALE_MIN,
             OTHER_ROBOT_SPEED_SCALE_MAX,
@@ -627,9 +619,7 @@ class ReefscapeEnv:
             range(len(path)),
             key=lambda index: state.other_robot_pose.distance_to(path[index]),
         )
-        state.other_robot_path_index = (
-            nearest_index + state.other_robot_direction
-        ) % len(path)
+        state.other_robot_path_index = (nearest_index + state.other_robot_direction) % len(path)
         target_x, target_y = path[state.other_robot_path_index]
         state.other_robot_pose.heading = angle_to(
             state.other_robot_pose.x,

@@ -80,13 +80,13 @@ class ReefscapeEnvTests(unittest.TestCase):
         obs, _, _, _, info = env.step([0.0, 0.0, 0.0, 0.0, 0.0])
 
         self.assertEqual(len(obs), len(OBSERVATION_FIELDS))
-        self.assertNotEqual((env.state.other_robot_pose.x, env.state.other_robot_pose.y), (start_x, start_y))
+        self.assertNotEqual(
+            (env.state.other_robot_pose.x, env.state.other_robot_pose.y), (start_x, start_y)
+        )
         self.assertIn("other_robot_distance_m", info)
 
     def test_hitting_other_robot_is_penalized(self) -> None:
-        env = ReefscapeEnv(
-            ReefscapeEnvConfig(randomize_start=False, other_robot_speed_mps=0.0)
-        )
+        env = ReefscapeEnv(ReefscapeEnvConfig(randomize_start=False, other_robot_speed_mps=0.0))
         env.reset(seed=1)
         env.state.pose = Pose2d(
             env.state.other_robot_pose.x - 0.90,

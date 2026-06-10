@@ -35,16 +35,10 @@ class MentalVisualizerPublisher:
 
         self.intent_pub = nt_instance.getStringTopic("/AI/Mental/Intent").publish()
         self.focus_pub = nt_instance.getStringTopic("/AI/Mental/Focus").publish()
-        self.thought_trace_pub = nt_instance.getStringTopic(
-            "/AI/Mental/ThoughtTrace"
-        ).publish()
-        self.confidence_pub = nt_instance.getDoubleTopic(
-            "/AI/Mental/Confidence"
-        ).publish()
+        self.thought_trace_pub = nt_instance.getStringTopic("/AI/Mental/ThoughtTrace").publish()
+        self.confidence_pub = nt_instance.getDoubleTopic("/AI/Mental/Confidence").publish()
         self.risk_pub = nt_instance.getDoubleTopic("/AI/Mental/Risk").publish()
-        self.action_energy_pub = nt_instance.getDoubleTopic(
-            "/AI/Mental/ActionEnergy"
-        ).publish()
+        self.action_energy_pub = nt_instance.getDoubleTopic("/AI/Mental/ActionEnergy").publish()
         self.objective_distance_pub = nt_instance.getDoubleTopic(
             "/AI/Mental/ObjectiveDistanceMeters"
         ).publish()
@@ -80,10 +74,7 @@ def build_mental_snapshot(
     model_energy = _action_energy(raw_action) if raw_action is not None else action_energy
     risk = _clamp01((1.35 - other_distance) / 1.35)
     confidence = _clamp01(
-        0.95
-        - 0.35 * risk
-        - 0.20 * _clamp01(state.frozen_time_s / 1.5)
-        - 0.10 * model_energy
+        0.95 - 0.35 * risk - 0.20 * _clamp01(state.frozen_time_s / 1.5) - 0.10 * model_energy
     )
 
     if state.hit_other_robot:
@@ -134,9 +125,7 @@ def _action_energy(action: Sequence[float]) -> float:
     translational = math.hypot(values[0], values[1]) if len(values) >= 2 else values[0]
     rotational = values[2] if len(values) >= 3 else 0.0
     mechanism = max(values[3:5], default=0.0)
-    return _clamp01(
-        0.55 * min(1.0, translational) + 0.25 * rotational + 0.20 * mechanism
-    )
+    return _clamp01(0.55 * min(1.0, translational) + 0.25 * rotational + 0.20 * mechanism)
 
 
 def _clamp01(value: float) -> float:
