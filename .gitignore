@@ -25,3 +25,4 @@ robot_code/2025-robot/bin/
 robot_code/2025-robot/AdvantageKit/**/*.glb
 .vscode/
 .idea/
+.ai/
