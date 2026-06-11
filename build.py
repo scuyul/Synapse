@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import zipfile
@@ -76,7 +77,11 @@ def build_go_launcher(output: Path) -> None:
     if go is None:
         raise SystemExit("Go was not found on PATH. Install Go first.")
 
-    run([go, "build", "-trimpath", "-o", str(output), "."], cwd=REPO_ROOT / "app")
+    cmd = [go, "build", "-trimpath"]
+    if os.name == "nt":
+        cmd.extend(["-ldflags", "-H=windowsgui"])
+    cmd.extend(["-o", str(output), "."])
+    run(cmd, cwd=REPO_ROOT / "app")
 
 
 def copy_app_payload(app_dir: Path) -> None:
