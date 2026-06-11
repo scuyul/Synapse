@@ -33,12 +33,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-open", action="store_true")
     parser.add_argument("--policy", choices=("heuristic", "random"), default="heuristic")
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--state-file",
+        type=Path,
+        default=None,
+        help="Read live visualizer snapshots from a training callback JSON file.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    state = VisualizerState(policy_name=args.policy, seed=args.seed)
+    state = (
+        FileBackedVisualizerState(args.state_file)
+        if args.state_file is not None
+        else VisualizerState(policy_name=args.policy, seed=args.seed)
+    )
     server = VisualizerServer((args.host, args.port), VisualizerHandler, state)
     url = f"http://{args.host}:{args.port}"
     print(f"REEFSCAPE 2025 Visualizer: {url}")
@@ -152,6 +162,22 @@ class VisualizerState:
         if self.policy_name == "random":
             return RandomPolicy(self.seed)
         return HeuristicCyclePolicy()
+
+
+class FileBackedVisualizerState:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def snapshot(self) -> dict[str, Any]:
+        if not self.path.exists():
+            raise RuntimeError(f"waiting for training state: {self.path}")
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def control(self, payload: dict[str, Any]) -> dict[str, Any]:
+        action = str(payload.get("action", "")).strip()
+        if action not in {"play", "pause", "step", "reset", "setPolicy", "setSpeed"}:
+            raise ValueError(f"unknown action: {action}")
+        return self.snapshot()
 
 
 class VisualizerServer(ThreadingHTTPServer):
@@ -437,6 +463,7 @@ INDEX_HTML = r"""<!doctype html>
       <button id="stepButton" class="icon" title="Step one tick">>|</button>
       <button id="resetButton" class="icon" title="Reset simulation">R</button>
       <select id="policySelect" title="Policy">
+        <option value="training model">Training model</option>
         <option value="heuristic">Heuristic</option>
         <option value="random">Random</option>
       </select>

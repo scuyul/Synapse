@@ -48,6 +48,14 @@ AI focus, and scoring state already wired in:
 python .\scripts\reefscape_visualizer.py
 ```
 
+Training preview can use AdvantageScope, the custom UI, both, or neither:
+
+```powershell
+python .\scripts\train_ppo.py --visualization-backend custom-ui
+python .\scripts\train_ppo.py --visualization-backend advantagescope
+python .\scripts\train_ppo.py --visualization-backend both
+```
+
 The copied 2025 robot project lives in `robot_code/2025-robot/`. Training can opt into its drivetrain constants with the `2025-robot` robot profile. That changes simulator dynamics, so treat old models as incompatible unless you intentionally validate them or retrain:
 
 ```powershell

@@ -52,7 +52,20 @@ def parse_args() -> argparse.Namespace:
         help="Compatibility flag. AdvantageScope preview is already enabled unless --no-advantagescope is set.",
     )
     parser.add_argument("--no-advantagescope", action="store_true")
+    parser.add_argument(
+        "--visualization-backend",
+        choices=("advantagescope", "custom-ui", "both", "none"),
+        default="advantagescope",
+        help="Live preview backend for training rollouts.",
+    )
     parser.add_argument("--advantage-port", type=int, default=5810)
+    parser.add_argument("--custom-ui-port", type=int, default=8775)
+    parser.add_argument(
+        "--custom-ui-state",
+        type=Path,
+        default=Path("logs/reefscape_visualizer_state.json"),
+        help="JSON state file used by the custom REEFSCAPE visualizer.",
+    )
     parser.add_argument("--viz-every-steps", type=int, default=512)
     parser.add_argument("--viz-preview-steps", type=int, default=25)
     parser.add_argument(
@@ -85,6 +98,8 @@ def main() -> int:
         from reefscape_rl.gymnasium_env import GymnasiumReefscapeEnv
         from reefscape_rl.training_viz import (
             AdvantageScopeTrainingCallback,
+            CustomUiTrainingCallback,
+            CustomUiTrainingConfig,
             TrainingVisualizationConfig,
         )
         from reefscape_rl.imitation import ImitationConfig, pretrain_from_heuristic
@@ -179,7 +194,10 @@ def main() -> int:
             )
 
     callbacks: list[BaseCallback] = []
-    if not args.no_advantagescope:
+    visualization_backend = "none" if args.no_advantagescope else args.visualization_backend
+    use_advantagescope = visualization_backend in {"advantagescope", "both"}
+    use_custom_ui = visualization_backend in {"custom-ui", "both"}
+    if use_advantagescope:
         callbacks.append(
             AdvantageScopeTrainingCallback(
                 TrainingVisualizationConfig(
@@ -191,6 +209,19 @@ def main() -> int:
         )
         print("Training visualization enabled for AdvantageScope.")
         print(f"Connect AdvantageScope to NetworkTables at 127.0.0.1:{args.advantage_port}")
+    if use_custom_ui:
+        callbacks.append(
+            CustomUiTrainingCallback(
+                CustomUiTrainingConfig(
+                    port=args.custom_ui_port,
+                    state_path=args.custom_ui_state,
+                    every_steps=args.viz_every_steps,
+                    preview_steps=args.viz_preview_steps,
+                )
+            )
+        )
+        print("Training visualization enabled for the custom REEFSCAPE UI.")
+        print(f"Open http://127.0.0.1:{args.custom_ui_port}")
 
     if args.checkpoint_every_steps > 0:
         callbacks.append(
