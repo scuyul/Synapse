@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -117,8 +118,13 @@ def run_full_checks() -> None:
 
 
 def run_powershell_script(script_path: str, *args: str) -> None:
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if powershell is None:
+        print("Could not find pwsh or powershell on PATH.")
+        return
+
     cmd = [
-        "pwsh",
+        powershell,
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
@@ -189,9 +195,12 @@ def run_command(cmd: list[str]) -> int:
     print()
     print("Running:")
     print(" ".join(cmd))
-    print()
+    print(flush=True)
     try:
         completed = subprocess.run(cmd, cwd=REPO_ROOT, check=False)
+    except FileNotFoundError:
+        print(f"Could not find command: {cmd[0]}")
+        return 127
     except KeyboardInterrupt:
         print("Stopped.")
         return 130
