@@ -358,6 +358,8 @@ func findPython(repoRoot string) (string, error) {
 	candidates := []string{
 		filepath.Join(repoRoot, ".venv", "Scripts", "python.exe"),
 		filepath.Join(repoRoot, ".venv", "bin", "python"),
+		filepath.Join(repoRoot, ".python", "python.exe"),
+		filepath.Join(repoRoot, ".python", "bin", "python"),
 	}
 	for _, candidate := range candidates {
 		if fileExists(candidate) {
@@ -381,7 +383,20 @@ func releaseBuildArgs(repoRoot string, python string) []string {
 }
 
 func setupVenvArgs(repoRoot string) []string {
-	return powershellArgs(filepath.Join(repoRoot, "scripts", "setup_venv.ps1"), "-BootstrapPython", "-SkipRequirements")
+	packagedPython := filepath.Join(repoRoot, ".python", "python.exe")
+	if runtime.GOOS != "windows" {
+		packagedPython = filepath.Join(repoRoot, ".python", "bin", "python")
+	}
+	if fileExists(packagedPython) {
+		return powershellArgs(
+			filepath.Join(repoRoot, "scripts", "setup_venv.ps1"),
+			"-Python",
+			packagedPython,
+			"-SkipRequirements",
+			"-FastAppInstall",
+		)
+	}
+	return powershellArgs(filepath.Join(repoRoot, "scripts", "setup_venv.ps1"), "-SkipRequirements")
 }
 
 func installTrainingDepsArgs(repoRoot string) []string {

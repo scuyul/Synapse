@@ -3,7 +3,8 @@ param(
     [string]$VenvPath = ".venv",
     [string]$PythonInstaller = "",
     [switch]$BootstrapPython,
-    [switch]$SkipRequirements
+    [switch]$SkipRequirements,
+    [switch]$FastAppInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +36,11 @@ function Find-Python {
 
     if (Test-PythonCommand $Preferred) {
         return $Preferred
+    }
+
+    $packagedPython = Join-Path (Get-Location) ".python\python.exe"
+    if (Test-PythonCommand $packagedPython) {
+        return $packagedPython
     }
 
     $commands = @("py -3.13", "py -3", "python", "python3")
@@ -95,7 +101,11 @@ function Install-Python {
         "Include_test=0",
         "SimpleInstall=1"
     )
-    $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+    $process = Start-Process -FilePath $installer -ArgumentList $arguments -PassThru
+    if (-not $process.WaitForExit(180)) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw "Python installer did not finish within 3 minutes. Use the bundled .python runtime or install Python manually."
+    }
     if ($process.ExitCode -ne 0) {
         throw "Python installer failed with exit code $($process.ExitCode)."
     }
@@ -138,10 +148,15 @@ if (-not (Test-Path $venvPython)) {
     throw "Virtual environment Python was not created at $venvPython"
 }
 
-Write-Host "Upgrading pip"
-& $venvPython -m pip install --upgrade pip
-if ($LASTEXITCODE -ne 0) {
-    throw "pip upgrade failed with exit code $LASTEXITCODE."
+if ($FastAppInstall) {
+    Write-Host "Fast app install: skipping pip upgrade and editable package install."
+}
+else {
+    Write-Host "Upgrading pip"
+    & $venvPython -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) {
+        throw "pip upgrade failed with exit code $LASTEXITCODE."
+    }
 }
 
 if ($SkipRequirements) {
@@ -156,10 +171,12 @@ else {
     }
 }
 
-Write-Host "Installing package in editable mode"
-& $venvPython -m pip install -e .
-if ($LASTEXITCODE -ne 0) {
-    throw "editable install failed with exit code $LASTEXITCODE."
+if (-not $FastAppInstall) {
+    Write-Host "Installing package in editable mode"
+    & $venvPython -m pip install -e .
+    if ($LASTEXITCODE -ne 0) {
+        throw "editable install failed with exit code $LASTEXITCODE."
+    }
 }
 
 Write-Host ""

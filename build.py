@@ -4,7 +4,7 @@ import argparse
 import os
 import shutil
 import subprocess
-import urllib.request
+import sys
 import zipfile
 from pathlib import Path
 
@@ -13,9 +13,6 @@ REPO_ROOT = Path(__file__).resolve().parent
 BUILDS_DIR = REPO_ROOT / "builds"
 APP_NAME = "ReefscapeRL"
 APP_EXE = "ReefscapeRL.exe"
-PYTHON_VERSION = "3.13.13"
-PYTHON_INSTALLER = f"python-{PYTHON_VERSION}-amd64.exe"
-PYTHON_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/{PYTHON_INSTALLER}"
 
 PACKAGE_DIRS = [
     ".github",
@@ -64,6 +61,7 @@ def main() -> int:
 
     build_go_launcher(app_dir / APP_EXE)
     copy_app_payload(app_dir)
+    copy_python_runtime(app_dir)
     write_launcher_files(app_dir)
 
     zip_path = make_zip(app_dir)
@@ -71,7 +69,6 @@ def main() -> int:
     print(f"Portable zip:        {zip_path}")
 
     if args.installer:
-        ensure_python_installer()
         build_inno_installer()
 
     return 0
@@ -130,6 +127,42 @@ def copy_app_payload(app_dir: Path) -> None:
             shutil.copy2(source, destination)
 
 
+def copy_python_runtime(app_dir: Path) -> None:
+    source = Path(sys.base_prefix).resolve()
+    python_exe = source / ("python.exe" if os.name == "nt" else "bin/python")
+    if not python_exe.exists():
+        source = Path(sys.executable).resolve().parent
+        python_exe = source / ("python.exe" if os.name == "nt" else "bin/python")
+    if not python_exe.exists():
+        raise SystemExit(f"Could not find base Python runtime from {sys.executable}")
+
+    destination = app_dir / ".python"
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    print(f"Bundling Python runtime: {source}")
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            "*.pdb",
+            ".mypy_cache",
+            ".pytest_cache",
+            "Doc",
+            "include",
+            "libs",
+            "share",
+            "site-packages",
+            "tcl",
+            "test",
+            "testing",
+            "tests",
+        ),
+    )
+
+
 def write_launcher_files(app_dir: Path) -> None:
     (app_dir / "Launch Reefscape RL.bat").write_text(
         f'@echo off\r\ncd /d "%~dp0"\r\n"{APP_EXE}"\r\n',
@@ -137,12 +170,12 @@ def write_launcher_files(app_dir: Path) -> None:
     )
     (app_dir / "Setup Python Environment.bat").write_text(
         '@echo off\r\ncd /d "%~dp0"\r\n'
-        'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup_venv.ps1 -BootstrapPython -SkipRequirements\r\n',
+        'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup_venv.ps1 -Python ".python\\python.exe" -SkipRequirements -FastAppInstall\r\n',
         encoding="utf-8",
     )
     (app_dir / "Install Training Dependencies.bat").write_text(
         '@echo off\r\ncd /d "%~dp0"\r\n'
-        'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install_training_deps.ps1\r\n',
+        "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install_training_deps.ps1\r\n",
         encoding="utf-8",
     )
 
@@ -157,48 +190,6 @@ def make_zip(app_dir: Path) -> Path:
             if path.is_file():
                 archive.write(path, path.relative_to(BUILDS_DIR))
     return zip_path
-
-
-def ensure_python_installer() -> Path:
-    prereq_dir = BUILDS_DIR / "prereqs"
-    prereq_dir.mkdir(parents=True, exist_ok=True)
-    installer = prereq_dir / PYTHON_INSTALLER
-    if installer.exists() and installer.stat().st_size > 0:
-        print(f"Using bundled Python installer: {installer}")
-        return installer
-
-    print(f"Downloading Python {PYTHON_VERSION}:")
-    print(PYTHON_URL)
-    with urllib.request.urlopen(PYTHON_URL) as response:
-        total_text = response.headers.get("Content-Length")
-        total = int(total_text) if total_text else 0
-        downloaded = 0
-        chunk_size = 1024 * 256
-        with installer.open("wb") as output:
-            while True:
-                chunk = response.read(chunk_size)
-                if not chunk:
-                    break
-                output.write(chunk)
-                downloaded += len(chunk)
-                print_progress(downloaded, total)
-    print()
-    return installer
-
-
-def print_progress(done: int, total: int) -> None:
-    if total <= 0:
-        print(f"\rDownloaded {done / (1024 * 1024):.1f} MB", end="", flush=True)
-        return
-    width = 32
-    ratio = min(done / total, 1.0)
-    filled = int(width * ratio)
-    bar = "#" * filled + "-" * (width - filled)
-    print(
-        f"\r[{bar}] {ratio * 100:5.1f}% ({done / (1024 * 1024):.1f}/{total / (1024 * 1024):.1f} MB)",
-        end="",
-        flush=True,
-    )
 
 
 def build_inno_installer() -> None:
