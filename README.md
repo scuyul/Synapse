@@ -56,6 +56,11 @@ python .\scripts\train_ppo.py --visualization-backend advantagescope
 python .\scripts\train_ppo.py --visualization-backend both
 ```
 
+When launched from the browser training studio, choosing a live preview option
+also tries to open that visualizer automatically. `none` still writes logs,
+metrics, checkpoints, and model artifacts without opening a field view.
+Use `--open-visualizer` on the command line for the same automatic-open behavior.
+
 The copied 2025 robot project lives in `robot_code/2025-robot/`. Training can opt into its drivetrain constants with the `2025-robot` robot profile. That changes simulator dynamics, so treat old models as incompatible unless you intentionally validate them or retrain:
 
 ```powershell

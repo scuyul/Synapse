@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -23,6 +25,7 @@ class TrainingVisualizationConfig:
     every_steps: int = 512
     preview_steps: int = 25
     seed: int = 2026
+    open_app: bool = False
 
 
 class AdvantageScopeTrainingCallback(BaseCallback):
@@ -47,6 +50,8 @@ class AdvantageScopeTrainingCallback(BaseCallback):
 
     def _on_training_start(self) -> None:
         self.publisher = AdvantageScopeNtPublisher.start_server(port=self.config.port)
+        if self.config.open_app:
+            _try_open_advantagescope()
         obs, _ = self.preview_env.reset(seed=self.config.seed)
         self.preview_obs = np.asarray(obs, dtype=np.float32)
         self.publisher.publish(self.preview_env)
@@ -193,3 +198,50 @@ class CustomUiTrainingCallback(BaseCallback):
             stderr=subprocess.DEVNULL,
             text=True,
         )
+
+
+def _try_open_advantagescope() -> None:
+    executable = _find_advantagescope_executable()
+    if executable is None:
+        print(
+            "AdvantageScope preview is running, but AdvantageScope could not be opened automatically."
+        )
+        print("Open AdvantageScope manually and connect NetworkTables to 127.0.0.1.")
+        return
+    try:
+        subprocess.Popen([str(executable)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"Opened AdvantageScope: {executable}")
+    except OSError as exc:
+        print(f"Could not open AdvantageScope automatically: {exc}")
+
+
+def _find_advantagescope_executable() -> Path | None:
+    env_path = os.environ.get("ADVANTAGESCOPE_PATH", "").strip()
+    candidates: list[Path] = []
+    if env_path:
+        candidates.append(Path(env_path))
+    which_path = shutil.which("advantagescope") or shutil.which("AdvantageScope")
+    if which_path:
+        candidates.append(Path(which_path))
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    program_files = os.environ.get("ProgramFiles", "")
+    program_files_x86 = os.environ.get("ProgramFiles(x86)", "")
+    for root in (local_app_data, program_files, program_files_x86):
+        if not root:
+            continue
+        candidates.extend(
+            [
+                Path(root) / "Programs" / "AdvantageScope" / "AdvantageScope.exe",
+                Path(root) / "AdvantageScope" / "AdvantageScope.exe",
+            ]
+        )
+    candidates.extend(
+        [
+            Path("C:/Program Files/AdvantageScope/AdvantageScope.exe"),
+            Path("C:/Program Files (x86)/AdvantageScope/AdvantageScope.exe"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None

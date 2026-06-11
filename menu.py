@@ -157,9 +157,14 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
     heuristic_pretrain = prompt_bool("Pretrain from heuristic first", not resume)
     pretrain_samples = prompt_int("Heuristic pretrain samples", 50_000)
     pretrain_epochs = prompt_int("Heuristic pretrain epochs", 10)
-    advantagescope = prompt_bool("Stream training preview to AdvantageScope", True)
+    visualization_backend = prompt_choice(
+        "Live preview",
+        "custom-ui",
+        {"advantagescope", "custom-ui", "none"},
+    )
     varied_defense = prompt_bool("Randomize defense bot during training", True)
     port = prompt_int("AdvantageScope NT port", 5810)
+    custom_ui_port = prompt_int("Custom visualizer port", 8775)
     viz_every = prompt_int("Preview every N training steps", 64 if smoke else 512)
     viz_steps = prompt_int("Preview sim steps per update", 5 if smoke else 25)
 
@@ -192,8 +197,12 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
         str(pretrain_samples),
         "--pretrain-heuristic-epochs",
         str(pretrain_epochs),
+        "--visualization-backend",
+        visualization_backend,
         "--advantage-port",
         str(port),
+        "--custom-ui-port",
+        str(custom_ui_port),
         "--viz-every-steps",
         str(viz_every),
         "--viz-preview-steps",
@@ -203,8 +212,10 @@ def run_training(*, smoke: bool = False, resume: bool = False) -> None:
         cmd.extend(["--resume-from", resume_from])
     if not heuristic_pretrain:
         cmd.append("--skip-heuristic-pretrain")
-    if not advantagescope:
+    if visualization_backend == "none":
         cmd.append("--no-advantagescope")
+    else:
+        cmd.append("--open-visualizer")
     if not varied_defense:
         cmd.append("--fixed-defense")
     run_command(cmd)

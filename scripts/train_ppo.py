@@ -58,6 +58,11 @@ def parse_args() -> argparse.Namespace:
         default="advantagescope",
         help="Live preview backend for training rollouts.",
     )
+    parser.add_argument(
+        "--open-visualizer",
+        action="store_true",
+        help="Open the selected visualizer app/browser when training starts.",
+    )
     parser.add_argument("--advantage-port", type=int, default=5810)
     parser.add_argument("--custom-ui-port", type=int, default=8775)
     parser.add_argument(
@@ -204,6 +209,7 @@ def main() -> int:
                     port=args.advantage_port,
                     every_steps=args.viz_every_steps,
                     preview_steps=args.viz_preview_steps,
+                    open_app=args.open_visualizer,
                 )
             )
         )
@@ -217,6 +223,7 @@ def main() -> int:
                     state_path=args.custom_ui_state,
                     every_steps=args.viz_every_steps,
                     preview_steps=args.viz_preview_steps,
+                    open_browser=args.open_visualizer,
                 )
             )
         )

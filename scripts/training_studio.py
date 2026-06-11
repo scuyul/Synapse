@@ -426,6 +426,8 @@ def build_train_command(config: dict[str, Any]) -> list[str]:
         "--metrics-every-steps",
         str(config["metricsEverySteps"]),
     ]
+    if config["visualizationBackend"] != "none":
+        cmd.append("--open-visualizer")
     if config["checkpointEval"] and config["checkpointEverySteps"] > 0:
         cmd.extend(
             [
@@ -1621,6 +1623,7 @@ INDEX_HTML = r"""<!doctype html>
               <li>Use AdvantageScope when you want NetworkTables topics and the standard 2D Field workflow.</li>
               <li>Use Custom UI when you want the built-in 2025 REEFSCAPE field, reef/source highlights, and AI intent panel.</li>
               <li>Use Both when comparing the custom dashboard against AdvantageScope during training.</li>
+              <li>Use No visualizer when you only want logs, metrics, checkpoints, and model artifacts.</li>
             </ol>
           </div>
           <form id="settingsForm" class="settings">
@@ -1723,12 +1726,12 @@ INDEX_HTML = r"""<!doctype html>
             <fieldset>
               <legend>Telemetry</legend>
               <div class="formGrid">
-                <label>Visualization
+                <label>Live preview
                   <select data-key="visualizationBackend">
-                    <option value="custom-ui">custom UI</option>
-                    <option value="advantagescope">AdvantageScope</option>
-                    <option value="both">both</option>
-                    <option value="none">none</option>
+                    <option value="custom-ui">Visualize in custom visualizer</option>
+                    <option value="advantagescope">Visualize in AdvantageScope</option>
+                    <option value="both">Open both visualizers</option>
+                    <option value="none">No visualizer</option>
                   </select>
                 </label>
                 <label>NT port
@@ -1922,7 +1925,7 @@ INDEX_HTML = r"""<!doctype html>
         learningRate: "PPO optimizer learning rate.",
         heuristicPretrain: "Bootstrap the policy from the heuristic before PPO starts.",
         variedDefense: "Randomize defense robot behavior during training.",
-        visualizationBackend: "Choose AdvantageScope, the custom REEFSCAPE UI, both, or no live preview.",
+        visualizationBackend: "Choose whether WebTrain opens AdvantageScope, the custom visualizer, both, or no live field preview.",
         advantageScope: "Compatibility setting for older saved configs.",
         checkpointDir: "Folder for checkpoint .zip files.",
         checkpointEverySteps: "Save a checkpoint every N timesteps; 0 disables checkpoints.",
