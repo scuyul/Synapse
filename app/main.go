@@ -373,7 +373,7 @@ func releaseBuildArgs(repoRoot string, python string) []string {
 }
 
 func setupVenvArgs(repoRoot string) []string {
-	return powershellArgs(filepath.Join(repoRoot, "scripts", "setup_venv.ps1"))
+	return powershellArgs(filepath.Join(repoRoot, "scripts", "setup_venv.ps1"), "-BootstrapPython")
 }
 
 func buildInstallerArgs(repoRoot string) []string {
