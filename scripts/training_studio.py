@@ -280,7 +280,10 @@ def validation_report(
         warnings.append(
             "2025 robot profile changes training dynamics; retrain or resume only from a compatible model."
         )
-    if config["visualizationBackend"] == "both" and config["advantagePort"] == config["customUiPort"]:
+    if (
+        config["visualizationBackend"] == "both"
+        and config["advantagePort"] == config["customUiPort"]
+    ):
         warnings.append("AdvantageScope and Custom UI should use different ports.")
     if rollout_size < 2:
         errors.append("rollout size must be at least 2")

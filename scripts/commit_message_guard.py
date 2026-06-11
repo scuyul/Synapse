@@ -77,7 +77,11 @@ def generated_subject(files: list[str]) -> str:
         return "Update simulator implementation"
     if any(path.startswith("robot_code/") for path in paths):
         return "Update robot integration"
-    if any(path in {"pyproject.toml", "requirements.txt", "requirements-dev.txt", "LICENSE", ".gitignore"} for path in paths):
+    if any(
+        path
+        in {"pyproject.toml", "requirements.txt", "requirements-dev.txt", "LICENSE", ".gitignore"}
+        for path in paths
+    ):
         return "Update project metadata"
     return "Update project files"
 

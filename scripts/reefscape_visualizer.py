@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import math
 from pathlib import Path
 import threading
 import time
