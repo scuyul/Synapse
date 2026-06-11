@@ -4,6 +4,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -12,6 +13,9 @@ REPO_ROOT = Path(__file__).resolve().parent
 BUILDS_DIR = REPO_ROOT / "builds"
 APP_NAME = "ReefscapeRL"
 APP_EXE = "ReefscapeRL.exe"
+PYTHON_VERSION = "3.13.13"
+PYTHON_INSTALLER = f"python-{PYTHON_VERSION}-amd64.exe"
+PYTHON_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/{PYTHON_INSTALLER}"
 
 PACKAGE_DIRS = [
     ".github",
@@ -67,6 +71,7 @@ def main() -> int:
     print(f"Portable zip:        {zip_path}")
 
     if args.installer:
+        ensure_python_installer()
         build_inno_installer()
 
     return 0
@@ -132,7 +137,7 @@ def write_launcher_files(app_dir: Path) -> None:
     )
     (app_dir / "Setup Python Environment.bat").write_text(
         '@echo off\r\ncd /d "%~dp0"\r\n'
-        'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup_venv.ps1\r\n',
+        'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup_venv.ps1 -BootstrapPython\r\n',
         encoding="utf-8",
     )
 
@@ -147,6 +152,48 @@ def make_zip(app_dir: Path) -> Path:
             if path.is_file():
                 archive.write(path, path.relative_to(BUILDS_DIR))
     return zip_path
+
+
+def ensure_python_installer() -> Path:
+    prereq_dir = BUILDS_DIR / "prereqs"
+    prereq_dir.mkdir(parents=True, exist_ok=True)
+    installer = prereq_dir / PYTHON_INSTALLER
+    if installer.exists() and installer.stat().st_size > 0:
+        print(f"Using bundled Python installer: {installer}")
+        return installer
+
+    print(f"Downloading Python {PYTHON_VERSION}:")
+    print(PYTHON_URL)
+    with urllib.request.urlopen(PYTHON_URL) as response:
+        total_text = response.headers.get("Content-Length")
+        total = int(total_text) if total_text else 0
+        downloaded = 0
+        chunk_size = 1024 * 256
+        with installer.open("wb") as output:
+            while True:
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
+                output.write(chunk)
+                downloaded += len(chunk)
+                print_progress(downloaded, total)
+    print()
+    return installer
+
+
+def print_progress(done: int, total: int) -> None:
+    if total <= 0:
+        print(f"\rDownloaded {done / (1024 * 1024):.1f} MB", end="", flush=True)
+        return
+    width = 32
+    ratio = min(done / total, 1.0)
+    filled = int(width * ratio)
+    bar = "#" * filled + "-" * (width - filled)
+    print(
+        f"\r[{bar}] {ratio * 100:5.1f}% ({done / (1024 * 1024):.1f}/{total / (1024 * 1024):.1f} MB)",
+        end="",
+        flush=True,
+    )
 
 
 def build_inno_installer() -> None:

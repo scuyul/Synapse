@@ -1,6 +1,7 @@
 param(
     [string]$Python = "",
     [string]$VenvPath = ".venv",
+    [string]$PythonInstaller = "",
     [switch]$BootstrapPython
 )
 
@@ -63,12 +64,25 @@ function Find-Python {
 }
 
 function Install-Python {
+    param([string]$BundledInstaller)
+
     $version = "3.13.13"
-    $installer = Join-Path $env:TEMP "python-$version-amd64.exe"
+    $installer = $BundledInstaller
     $url = "https://www.python.org/ftp/python/$version/python-$version-amd64.exe"
 
-    Write-Host "Python was not found. Downloading Python $version..."
-    Invoke-WebRequest -Uri $url -OutFile $installer
+    if ($installer -and (Test-Path -LiteralPath $installer)) {
+        Write-Host "Python was not found. Using bundled Python installer: $installer"
+    }
+    else {
+        $installer = Join-Path $env:TEMP "python-$version-amd64.exe"
+        Write-Host "Python was not found. Downloading Python $version..."
+        Write-Host $url
+
+        $response = Invoke-WebRequest -Uri $url -OutFile $installer -PassThru
+        if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
+            throw "Python download failed with HTTP status $($response.StatusCode)."
+        }
+    }
 
     Write-Host "Installing Python $version for the current user..."
     $arguments = @(
@@ -106,7 +120,7 @@ function Invoke-Python {
 
 $resolvedPython = Find-Python $Python
 if (-not $resolvedPython -and $BootstrapPython) {
-    Install-Python
+    Install-Python $PythonInstaller
     $resolvedPython = Find-Python ""
 }
 
