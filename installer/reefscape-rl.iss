@@ -26,10 +26,13 @@ Source: "..\builds\ReefscapeRL\*"; DestDir: "{app}"; Flags: ignoreversion recurs
 Name: "{group}\Reefscape RL"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\Reefscape RL"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 Name: "{group}\Setup Python Environment"; Filename: "{app}\Setup Python Environment.bat"; WorkingDir: "{app}"
+Name: "{group}\Complete First-Time Setup"; Filename: "{app}\Complete First-Time Setup.bat"; WorkingDir: "{app}"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
+Name: "trainingdeps"; Description: "Install training dependencies during setup"; GroupDescription: "First-time setup:"; Flags: checkedonce
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\setup_venv.ps1"" -Python ""{app}\.python\python.exe"" -SkipRequirements -FastAppInstall"; StatusMsg: "Creating Python environment..."; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install_app_setup.ps1"" -Python ""{app}\.python\python.exe"""; StatusMsg: "Creating Python environment..."; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install_training_deps.ps1"""; StatusMsg: "Installing training dependencies..."; Flags: waituntilterminated; Tasks: trainingdeps
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Reefscape RL"; Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"

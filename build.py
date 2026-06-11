@@ -173,6 +173,11 @@ def write_launcher_files(app_dir: Path) -> None:
         'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup_venv.ps1 -Python ".python\\python.exe" -SkipRequirements -FastAppInstall\r\n',
         encoding="utf-8",
     )
+    (app_dir / "Complete First-Time Setup.bat").write_text(
+        '@echo off\r\ncd /d "%~dp0"\r\n'
+        'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install_app_setup.ps1 -Python ".python\\python.exe" -InstallTrainingDependencies\r\n',
+        encoding="utf-8",
+    )
     (app_dir / "Install Training Dependencies.bat").write_text(
         '@echo off\r\ncd /d "%~dp0"\r\n'
         "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install_training_deps.ps1\r\n",

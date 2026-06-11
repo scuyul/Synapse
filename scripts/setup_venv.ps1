@@ -9,6 +9,20 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Show-SetupProgress {
+    param(
+        [string]$Status,
+        [int]$Step,
+        [int]$Total = 5
+    )
+
+    Write-Progress `
+        -Activity "Python environment setup" `
+        -Status $Status `
+        -PercentComplete ([math]::Min(100, [math]::Max(0, (($Step - 1) * 100 / $Total))))
+    Write-Host "[$Step/$Total] $Status"
+}
+
 function Test-PythonCommand {
     param([string]$Command)
 
@@ -129,6 +143,9 @@ function Invoke-Python {
     }
 }
 
+$totalSteps = if ($FastAppInstall) { 3 } elseif ($SkipRequirements) { 4 } else { 5 }
+
+Show-SetupProgress "Finding Python" 1 $totalSteps
 $resolvedPython = Find-Python $Python
 if (-not $resolvedPython -and $BootstrapPython) {
     Install-Python $PythonInstaller
@@ -140,6 +157,7 @@ if (-not $resolvedPython) {
 }
 
 Write-Host "Using Python: $resolvedPython"
+Show-SetupProgress "Creating virtual environment at $VenvPath" 2 $totalSteps
 Write-Host "Creating virtual environment at $VenvPath"
 Invoke-Python $resolvedPython @("-m", "venv", $VenvPath)
 
@@ -149,9 +167,11 @@ if (-not (Test-Path $venvPython)) {
 }
 
 if ($FastAppInstall) {
+    Show-SetupProgress "Skipping pip/package install for fast app setup" 3 $totalSteps
     Write-Host "Fast app install: skipping pip upgrade and editable package install."
 }
 else {
+    Show-SetupProgress "Upgrading pip" 3 $totalSteps
     Write-Host "Upgrading pip"
     & $venvPython -m pip install --upgrade pip
     if ($LASTEXITCODE -ne 0) {
@@ -160,10 +180,14 @@ else {
 }
 
 if ($SkipRequirements) {
+    if (-not $FastAppInstall) {
+        Show-SetupProgress "Skipping training requirements" 4 $totalSteps
+    }
     Write-Host "Skipping CUDA/training requirements for fast app install."
     Write-Host "Install them later from the app with: Install Training Dependencies"
 }
 else {
+    Show-SetupProgress "Installing CUDA/training requirements" 4 $totalSteps
     Write-Host "Installing CUDA runtime requirements"
     & $venvPython -m pip install -r requirements.txt
     if ($LASTEXITCODE -ne 0) {
@@ -172,6 +196,7 @@ else {
 }
 
 if (-not $FastAppInstall) {
+    Show-SetupProgress "Installing editable package" $totalSteps $totalSteps
     Write-Host "Installing package in editable mode"
     & $venvPython -m pip install -e .
     if ($LASTEXITCODE -ne 0) {
@@ -179,6 +204,7 @@ if (-not $FastAppInstall) {
     }
 }
 
+Write-Progress -Activity "Python environment setup" -Completed
 Write-Host ""
 Write-Host "Setup complete."
 Write-Host "Activate with: .\.venv\Scripts\Activate.ps1"

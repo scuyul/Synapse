@@ -566,6 +566,25 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
       gap: 12px;
       margin-bottom: 12px;
     }
+    .progress-wrap {
+      height: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel-2);
+    }
+    .progress-wrap[hidden] { display: none; }
+    .progress-bar {
+      width: 34%;
+      height: 100%;
+      background: var(--cyan);
+      animation: progress-slide 1.2s ease-in-out infinite;
+    }
+    @keyframes progress-slide {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(310%); }
+    }
     pre {
       height: calc(100vh - 140px);
       margin: 0;
@@ -604,6 +623,9 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
         <strong>Live Log</strong>
         <span id="current" class="pill">Idle</span>
       </div>
+      <div id="progress" class="progress-wrap" hidden>
+        <div class="progress-bar"></div>
+      </div>
       <pre id="logs"></pre>
     </section>
   </main>
@@ -617,6 +639,7 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
       py.className = data.pythonAvailable ? 'ok' : 'bad';
       document.getElementById('run-state').textContent = data.running ? 'Running' : 'Ready';
       document.getElementById('current').textContent = data.running ? data.current : 'Idle';
+      document.getElementById('progress').hidden = !data.running;
       document.getElementById('logs').textContent = data.logs.join('\n');
 
       const container = document.getElementById('commands');
