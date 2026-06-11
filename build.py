@@ -145,13 +145,29 @@ def make_zip(app_dir: Path) -> Path:
 
 
 def build_inno_installer() -> None:
-    iscc = shutil.which("iscc") or shutil.which("ISCC")
+    iscc = find_inno_compiler()
     if iscc is None:
         print("Inno Setup was not found on PATH; skipped Setup.exe build.")
         print("Install Inno Setup, then run: build.bat --installer")
         return
 
     run([iscc, str(REPO_ROOT / "installer" / "reefscape-rl.iss")], cwd=REPO_ROOT)
+
+
+def find_inno_compiler() -> str | None:
+    path_match = shutil.which("iscc") or shutil.which("ISCC")
+    if path_match:
+        return path_match
+
+    candidates = [
+        Path.home() / "AppData/Local/Programs/Inno Setup 6/ISCC.exe",
+        Path("C:/Program Files (x86)/Inno Setup 6/ISCC.exe"),
+        Path("C:/Program Files/Inno Setup 6/ISCC.exe"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
 
 
 def run(cmd: list[str], *, cwd: Path) -> None:
