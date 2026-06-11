@@ -1,6 +1,7 @@
 param(
     [switch]$SkipChecks,
-    [switch]$KeepDist
+    [switch]$KeepDist,
+    [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,25 +9,58 @@ $ErrorActionPreference = "Stop"
 $repoRoot = git rev-parse --show-toplevel
 Set-Location $repoRoot
 
+if (-not $PythonExe) {
+    if ($env:VIRTUAL_ENV) {
+        $venvPython = Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
+        if (Test-Path -LiteralPath $venvPython) {
+            $PythonExe = $venvPython
+        }
+    }
+}
+
+if (-not $PythonExe) {
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCommand) {
+        $PythonExe = $pythonCommand.Source
+    }
+}
+
+if (-not $PythonExe) {
+    throw "Could not find Python. Activate .venv or pass -PythonExe <path-to-python.exe>."
+}
+
+function Invoke-Step {
+    param([string[]]$Command)
+
+    & $Command[0] @($Command | Select-Object -Skip 1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed with exit code ${LASTEXITCODE}: $($Command -join ' ')"
+    }
+}
+
 if (-not $KeepDist) {
     Remove-Item -LiteralPath "dist" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
-python -m pip install build==1.3.0
+Invoke-Step @($PythonExe, "-m", "pip", "install", "--upgrade", "pip")
+Invoke-Step @($PythonExe, "-m", "pip", "install", "-r", "requirements-dev.txt")
+Invoke-Step @($PythonExe, "-m", "pip", "install", "build==1.3.0")
 
 if (-not $SkipChecks) {
-    python -m ruff check .
-    python -m ruff format --check .
-    python -m unittest discover -s tests
-    python -m compileall reefscape_rl scripts tests
+    Invoke-Step @($PythonExe, "-m", "ruff", "check", ".")
+    Invoke-Step @($PythonExe, "-m", "ruff", "format", "--check", ".")
+    Invoke-Step @($PythonExe, "-m", "unittest", "discover", "-s", "tests")
+    Invoke-Step @($PythonExe, "-m", "compileall", "reefscape_rl", "scripts", "tests")
 }
 
-python -m build
+Invoke-Step @($PythonExe, "-m", "build")
+
+if (-not (Test-Path -LiteralPath "dist")) {
+    throw "Build completed without creating dist/."
+}
 
 $commit = git rev-parse HEAD
-$version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+$version = & $PythonExe -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
 $tag = @(git tag --points-at HEAD | Select-Object -First 1)
 if ($null -eq $tag) {
     $tag = ""

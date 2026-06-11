@@ -130,6 +130,8 @@ def run_powershell_script(script_path: str, *args: str) -> None:
         "Bypass",
         "-File",
         str(REPO_ROOT / script_path),
+        "-PythonExe",
+        PYTHON,
         *args,
     ]
     run_command(cmd)
