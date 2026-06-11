@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,24 +12,39 @@ import (
 	"strings"
 )
 
+const (
+	cyan    = "\033[38;5;51m"
+	orange  = "\033[38;5;208m"
+	green   = "\033[38;5;46m"
+	magenta = "\033[38;5;201m"
+	blue    = "\033[38;5;39m"
+	yellow  = "\033[38;5;226m"
+	red     = "\033[38;5;196m"
+	bold    = "\033[1m"
+	reset   = "\033[0m"
+)
+
 type commandOption struct {
 	key         string
 	label       string
 	description string
 	args        []string
+	disabled    string
+	color       string
 }
 
 func main() {
 	repoRoot, err := findRepoRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Could not find repo root: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%sCould not find repo root:%s %v\n", red, reset, err)
+		pauseForExplorer()
 		os.Exit(1)
 	}
 
-	python, err := findPython(repoRoot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Could not find Python: %v\n", err)
-		os.Exit(1)
+	python, pythonErr := findPython(repoRoot)
+	pythonDisabled := ""
+	if pythonErr != nil {
+		pythonDisabled = pythonErr.Error()
 	}
 
 	options := []commandOption{
@@ -37,30 +53,40 @@ func main() {
 			label:       "Training menu",
 			description: "Open the existing REEFSCAPE RL control menu.",
 			args:        []string{python, "menu.py"},
+			disabled:    pythonDisabled,
+			color:       cyan,
 		},
 		{
 			key:         "2",
 			label:       "Management menu",
 			description: "Open checks, release builds, tags, and git helpers.",
 			args:        []string{python, "manage.py"},
+			disabled:    pythonDisabled,
+			color:       orange,
 		},
 		{
 			key:         "3",
 			label:       "Training Studio",
 			description: "Start the browser-based training UI.",
 			args:        []string{python, "scripts/training_studio.py"},
+			disabled:    pythonDisabled,
+			color:       green,
 		},
 		{
 			key:         "4",
 			label:       "Custom visualizer",
 			description: "Start the REEFSCAPE 2025 browser visualizer.",
 			args:        []string{python, "scripts/reefscape_visualizer.py"},
+			disabled:    pythonDisabled,
+			color:       magenta,
 		},
 		{
 			key:         "5",
 			label:       "Doctor",
 			description: "Run environment diagnostics.",
 			args:        []string{python, "-m", "reefscape_rl.doctor"},
+			disabled:    pythonDisabled,
+			color:       blue,
 		},
 		{
 			key:         "6",
@@ -71,25 +97,34 @@ func main() {
 				"-c",
 				"import manage; manage.run_full_checks()",
 			},
+			disabled: pythonDisabled,
+			color:    yellow,
 		},
 		{
 			key:         "7",
 			label:       "Build release artifacts",
 			description: "Run scripts/build_release.ps1 with the selected Python.",
 			args:        releaseBuildArgs(repoRoot, python),
+			disabled:    pythonDisabled,
+			color:       red,
 		},
 		{
 			key:         "8",
 			label:       "Set up Python environment",
 			description: "Create/update .venv with the repo setup script.",
 			args:        setupVenvArgs(repoRoot),
+			color:       green,
 		},
 	}
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		printMenu(repoRoot, python, options)
-		choice, _ := reader.ReadString('\n')
+		printMenu(repoRoot, python, pythonErr, options)
+		choice, err := reader.ReadString('\n')
+		if errors.Is(err, io.EOF) && strings.TrimSpace(choice) == "" {
+			pauseForExplorer()
+			return
+		}
 		choice = strings.TrimSpace(choice)
 		if choice == "9" || strings.EqualFold(choice, "q") || strings.EqualFold(choice, "quit") {
 			return
@@ -101,27 +136,50 @@ func main() {
 			continue
 		}
 
-		if err := run(repoRoot, option); err != nil {
-			fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
+		if option.disabled != "" {
+			fmt.Printf("%s%s is unavailable:%s %s\n", red, option.label, reset, option.disabled)
+			pause(reader)
+			continue
 		}
+
+		if err := run(repoRoot, option); err != nil {
+			fmt.Fprintf(os.Stderr, "%sCommand failed:%s %v\n", red, reset, err)
+		}
+		pause(reader)
 	}
 }
 
-func printMenu(repoRoot string, python string, options []commandOption) {
+func printMenu(repoRoot string, python string, pythonErr error, options []commandOption) {
 	fmt.Println()
-	fmt.Println("REEFSCAPE RL App")
-	fmt.Println("================")
-	fmt.Printf("Repo:   %s\n", repoRoot)
-	fmt.Printf("Python: %s\n", python)
+	fmt.Printf("%s%sREEFSCAPE RL App%s\n", bold, orange, reset)
+	fmt.Printf("%s================%s\n", orange, reset)
+	fmt.Printf("%sRepo:%s   %s\n", cyan, reset, repoRoot)
+	if pythonErr == nil {
+		fmt.Printf("%sPython:%s %s\n", green, reset, python)
+	} else {
+		fmt.Printf("%sPython:%s unavailable - %s\n", red, reset, pythonErr)
+	}
 	fmt.Println()
 	for _, option := range options {
-		fmt.Printf("%s. %s\n", option.key, option.label)
+		itemColor := option.color
+		if itemColor == "" {
+			itemColor = cyan
+		}
+		state := ""
+		if option.disabled != "" {
+			itemColor = red
+			state = " [unavailable]"
+		}
+		fmt.Printf("%s%s%s.%s %s%s%s\n", itemColor, bold, option.key, reset, itemColor, option.label, reset)
 		if option.description != "" {
-			fmt.Printf("   %s\n", option.description)
+			fmt.Printf("   %s%s%s\n", blue, option.description, reset)
+		}
+		if state != "" {
+			fmt.Printf("   %s%s%s\n", red, strings.TrimSpace(state), reset)
 		}
 	}
-	fmt.Println("9. Exit")
-	fmt.Print("Select option: ")
+	fmt.Printf("%s%s9.%s %sExit%s\n", magenta, bold, reset, magenta, reset)
+	fmt.Printf("%sSelect option:%s ", orange, reset)
 }
 
 func lookupOption(options []commandOption, key string) (commandOption, bool) {
@@ -229,7 +287,7 @@ func run(repoRoot string, option commandOption) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Running:")
+	fmt.Printf("%sRunning:%s\n", orange, reset)
 	fmt.Println(strings.Join(option.args, " "))
 	fmt.Println()
 
@@ -239,4 +297,16 @@ func run(repoRoot string, option commandOption) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func pause(reader *bufio.Reader) {
+	fmt.Printf("\n%sPress Enter to return to the menu...%s", orange, reset)
+	_, _ = reader.ReadString('\n')
+}
+
+func pauseForExplorer() {
+	if stat, err := os.Stdin.Stat(); err == nil && (stat.Mode()&os.ModeCharDevice) != 0 {
+		fmt.Printf("\n%sPress Enter to close...%s", orange, reset)
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+	}
 }
