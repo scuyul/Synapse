@@ -47,6 +47,16 @@ Maintenance and release commands are available through a separate management men
 python .\manage.py
 ```
 
+This branch also includes an experimental Go app launcher. It compiles a small
+native wrapper that finds the repo, picks `.venv` Python when available, and
+opens the main training, management, studio, visualizer, diagnostics, and release
+commands:
+
+```powershell
+.\scripts\build_app.ps1
+.\dist\reefscape-app.exe
+```
+
 Open the REEFSCAPE-specific visualizer for a custom 2025 game view. It runs a
 local browser dashboard with the reef, coral stations, objective, traffic robot,
 AI focus, and scoring state already wired in:
