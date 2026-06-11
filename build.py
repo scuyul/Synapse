@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import zipfile
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parent
+BUILDS_DIR = REPO_ROOT / "builds"
+APP_NAME = "ReefscapeRL"
+APP_EXE = "ReefscapeRL.exe"
+
+PACKAGE_DIRS = [
+    ".github",
+    "app",
+    "docs",
+    "reefscape_rl",
+    "robot_code",
+    "scripts",
+    "tests",
+]
+PACKAGE_FILES = [
+    ".gitattributes",
+    ".gitignore",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "README.md",
+    "build.bat",
+    "build.py",
+    "manage.py",
+    "menu.py",
+    "networktables.json",
+    "pyproject.toml",
+    "requirements-dev.txt",
+    "requirements.txt",
+]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Build the REEFSCAPE RL desktop app bundle.")
+    parser.add_argument("--clean", action="store_true", help="Delete builds/ before building.")
+    parser.add_argument(
+        "--installer",
+        action="store_true",
+        help="Try to build a Windows Setup.exe with Inno Setup after packaging.",
+    )
+    args = parser.parse_args()
+
+    if args.clean and BUILDS_DIR.exists():
+        shutil.rmtree(BUILDS_DIR)
+
+    BUILDS_DIR.mkdir(exist_ok=True)
+    app_dir = BUILDS_DIR / APP_NAME
+    if app_dir.exists():
+        shutil.rmtree(app_dir)
+    app_dir.mkdir(parents=True)
+
+    build_go_launcher(app_dir / APP_EXE)
+    copy_app_payload(app_dir)
+    write_launcher_files(app_dir)
+
+    zip_path = make_zip(app_dir)
+    print(f"Portable app folder: {app_dir}")
+    print(f"Portable zip:        {zip_path}")
+
+    if args.installer:
+        build_inno_installer()
+
+    return 0
+
+
+def build_go_launcher(output: Path) -> None:
+    go = shutil.which("go")
+    if go is None:
+        raise SystemExit("Go was not found on PATH. Install Go first.")
+
+    run([go, "build", "-trimpath", "-o", str(output), "."], cwd=REPO_ROOT / "app")
+
+
+def copy_app_payload(app_dir: Path) -> None:
+    for relative in PACKAGE_DIRS:
+        source = REPO_ROOT / relative
+        if source.exists():
+            shutil.copytree(
+                source,
+                app_dir / relative,
+                ignore=shutil.ignore_patterns(
+                    ".ai",
+                    ".git",
+                    ".gradle",
+                    ".mypy_cache",
+                    ".pytest_cache",
+                    "__pycache__",
+                    ".venv",
+                    ".ruff_cache",
+                    "*.egg-info",
+                    "*.glb",
+                    "*.pyc",
+                    "*.wpi",
+                    "*.wpilog",
+                    "bin",
+                    "build",
+                    "builds",
+                    "dist",
+                    "env",
+                    "logs",
+                    "models",
+                    "runs",
+                    "venv",
+                ),
+            )
+
+    for relative in PACKAGE_FILES:
+        source = REPO_ROOT / relative
+        if source.exists():
+            destination = app_dir / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+
+
+def write_launcher_files(app_dir: Path) -> None:
+    (app_dir / "Launch Reefscape RL.bat").write_text(
+        f'@echo off\r\ncd /d "%~dp0"\r\n"{APP_EXE}"\r\n',
+        encoding="utf-8",
+    )
+    (app_dir / "Setup Python Environment.bat").write_text(
+        '@echo off\r\ncd /d "%~dp0"\r\n'
+        'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup_venv.ps1\r\n',
+        encoding="utf-8",
+    )
+
+
+def make_zip(app_dir: Path) -> Path:
+    zip_path = BUILDS_DIR / f"{APP_NAME}-portable.zip"
+    if zip_path.exists():
+        zip_path.unlink()
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in app_dir.rglob("*"):
+            if path.is_file():
+                archive.write(path, path.relative_to(BUILDS_DIR))
+    return zip_path
+
+
+def build_inno_installer() -> None:
+    iscc = shutil.which("iscc") or shutil.which("ISCC")
+    if iscc is None:
+        print("Inno Setup was not found on PATH; skipped Setup.exe build.")
+        print("Install Inno Setup, then run: build.bat --installer")
+        return
+
+    run([iscc, str(REPO_ROOT / "installer" / "reefscape-rl.iss")], cwd=REPO_ROOT)
+
+
+def run(cmd: list[str], *, cwd: Path) -> None:
+    print()
+    print("Running:")
+    print(" ".join(cmd))
+    print()
+    completed = subprocess.run(cmd, cwd=cwd, check=False)
+    if completed.returncode != 0:
+        raise SystemExit(completed.returncode)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("Stopped.")
+        raise SystemExit(130) from None

@@ -78,6 +78,12 @@ func main() {
 			description: "Run scripts/build_release.ps1 with the selected Python.",
 			args:        releaseBuildArgs(repoRoot, python),
 		},
+		{
+			key:         "8",
+			label:       "Set up Python environment",
+			description: "Create/update .venv with the repo setup script.",
+			args:        setupVenvArgs(repoRoot),
+		},
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -85,7 +91,7 @@ func main() {
 		printMenu(repoRoot, python, options)
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
-		if choice == "8" || strings.EqualFold(choice, "q") || strings.EqualFold(choice, "quit") {
+		if choice == "9" || strings.EqualFold(choice, "q") || strings.EqualFold(choice, "quit") {
 			return
 		}
 
@@ -114,7 +120,7 @@ func printMenu(repoRoot string, python string, options []commandOption) {
 			fmt.Printf("   %s\n", option.description)
 		}
 	}
-	fmt.Println("8. Exit")
+	fmt.Println("9. Exit")
 	fmt.Print("Select option: ")
 }
 
@@ -193,15 +199,23 @@ func findPython(repoRoot string) (string, error) {
 
 func releaseBuildArgs(repoRoot string, python string) []string {
 	script := filepath.Join(repoRoot, "scripts", "build_release.ps1")
+	return powershellArgs(script, "-PythonExe", python)
+}
+
+func setupVenvArgs(repoRoot string) []string {
+	return powershellArgs(filepath.Join(repoRoot, "scripts", "setup_venv.ps1"))
+}
+
+func powershellArgs(script string, extra ...string) []string {
 	if runtime.GOOS == "windows" {
 		if pwsh, err := exec.LookPath("pwsh"); err == nil {
-			return []string{pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-PythonExe", python}
+			return append([]string{pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script}, extra...)
 		}
 		if powershell, err := exec.LookPath("powershell"); err == nil {
-			return []string{powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-PythonExe", python}
+			return append([]string{powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script}, extra...)
 		}
 	}
-	return []string{"pwsh", "-NoProfile", "-File", script, "-PythonExe", python}
+	return append([]string{"pwsh", "-NoProfile", "-File", script}, extra...)
 }
 
 func fileExists(path string) bool {

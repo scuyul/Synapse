@@ -1,5 +1,5 @@
 param(
-    [string]$Output = "dist\reefscape-app.exe"
+    [string]$Output = "builds\reefscape-app.exe"
 )
 
 $ErrorActionPreference = "Stop"
