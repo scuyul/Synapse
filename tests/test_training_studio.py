@@ -32,6 +32,8 @@ class TrainingStudioTests(unittest.TestCase):
         self.assertOptionValue(cmd, "--model-out", "models/test_model")
         self.assertOptionValue(cmd, "--device", "cpu")
         self.assertOptionValue(cmd, "--robot-profile", "sim")
+        self.assertOptionValue(cmd, "--visualization-backend", "advantagescope")
+        self.assertIn("--open-visualizer", cmd)
         self.assertOptionValue(cmd, "--n-envs", "2")
         self.assertOptionValue(cmd, "--metrics-out", "logs/test_metrics.jsonl")
 
@@ -51,6 +53,32 @@ class TrainingStudioTests(unittest.TestCase):
         self.assertIn("--skip-heuristic-pretrain", cmd)
         self.assertIn("--no-advantagescope", cmd)
         self.assertIn("--fixed-defense", cmd)
+
+    def test_build_train_command_can_select_custom_ui_visualizer(self) -> None:
+        config = normalize_config(
+            {
+                "visualizationBackend": "custom-ui",
+                "customUiPort": 8899,
+                "customUiState": "logs/custom_state.json",
+            }
+        )
+
+        cmd = build_train_command(config)
+
+        self.assertOptionValue(cmd, "--visualization-backend", "custom-ui")
+        self.assertOptionValue(cmd, "--custom-ui-port", "8899")
+        self.assertOptionValue(cmd, "--custom-ui-state", "logs/custom_state.json")
+        self.assertIn("--open-visualizer", cmd)
+        self.assertNotIn("--no-advantagescope", cmd)
+
+    def test_build_train_command_can_disable_visualizer(self) -> None:
+        config = normalize_config({"visualizationBackend": "none"})
+
+        cmd = build_train_command(config)
+
+        self.assertOptionValue(cmd, "--visualization-backend", "none")
+        self.assertIn("--no-advantagescope", cmd)
+        self.assertNotIn("--open-visualizer", cmd)
 
     def test_invalid_device_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

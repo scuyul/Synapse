@@ -41,6 +41,27 @@ The text menu is still available as a fallback for quick diagnostics and command
 python .\menu.py
 ```
 
+Open the REEFSCAPE-specific visualizer for a custom 2025 game view. It runs a
+local browser dashboard with the reef, coral stations, objective, traffic robot,
+AI focus, and scoring state already wired in:
+
+```powershell
+python .\scripts\reefscape_visualizer.py
+```
+
+Training preview can use AdvantageScope, the custom UI, both, or neither:
+
+```powershell
+python .\scripts\train_ppo.py --visualization-backend custom-ui
+python .\scripts\train_ppo.py --visualization-backend advantagescope
+python .\scripts\train_ppo.py --visualization-backend both
+```
+
+When launched from the browser training studio, choosing a live preview option
+also tries to open that visualizer automatically. `none` still writes logs,
+metrics, checkpoints, and model artifacts without opening a field view.
+Use `--open-visualizer` on the command line for the same automatic-open behavior.
+
 The copied 2025 robot project lives in `robot_code/2025-robot/`. Training can opt into its drivetrain constants with the `2025-robot` robot profile. That changes simulator dynamics, so treat old models as incompatible unless you intentionally validate them or retrain:
 
 ```powershell

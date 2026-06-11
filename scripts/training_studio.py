@@ -37,7 +37,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "pretrainSamples": 50_000,
     "pretrainEpochs": 10,
     "advantageScope": True,
+    "visualizationBackend": "advantagescope",
     "advantagePort": 5810,
+    "customUiPort": 8775,
+    "customUiState": "logs/reefscape_visualizer_state.json",
     "vizEverySteps": 512,
     "vizPreviewSteps": 25,
     "variedDefense": True,
@@ -68,6 +71,7 @@ RUN_PRESETS: dict[str, dict[str, Any]] = {
         "keepCheckpoints": 2,
         "heuristicPretrain": True,
         "advantageScope": True,
+        "visualizationBackend": "custom-ui",
         "variedDefense": True,
         "structuredRun": True,
         "checkpointEval": True,
@@ -83,6 +87,7 @@ RUN_PRESETS: dict[str, dict[str, Any]] = {
         "checkpointEval": False,
         "heuristicPretrain": False,
         "advantageScope": False,
+        "visualizationBackend": "none",
         "metricsOut": "logs/studio/smoke_metrics.jsonl",
         "metricsEverySteps": 64,
     },
@@ -103,6 +108,7 @@ RUN_PRESETS: dict[str, dict[str, Any]] = {
         "checkpointEval": False,
         "heuristicPretrain": False,
         "advantageScope": False,
+        "visualizationBackend": "none",
         "metricsEverySteps": 1,
     },
 }
@@ -117,6 +123,7 @@ INT_FIELDS = {
     "pretrainSamples",
     "pretrainEpochs",
     "advantagePort",
+    "customUiPort",
     "vizEverySteps",
     "vizPreviewSteps",
     "metricsEverySteps",
@@ -135,13 +142,16 @@ STRING_FIELDS = {
     "resumeFrom",
     "device",
     "robotProfile",
+    "visualizationBackend",
     "checkpointDir",
     "metricsOut",
+    "customUiState",
     "bestModelOut",
     "evalMetricsOut",
 }
 DEVICE_CHOICES = {"auto", "cuda", "cpu"}
 ROBOT_PROFILE_CHOICES = {"sim", "2025-robot"}
+VISUALIZATION_BACKEND_CHOICES = {"advantagescope", "custom-ui", "both", "none"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -194,6 +204,11 @@ def normalize_config(payload: dict[str, Any] | None) -> dict[str, Any]:
         raise ValueError("device must be auto, cuda, or cpu")
     if config["robotProfile"] not in ROBOT_PROFILE_CHOICES:
         raise ValueError("robotProfile must be sim or 2025-robot")
+    if config["visualizationBackend"] not in VISUALIZATION_BACKEND_CHOICES:
+        raise ValueError("visualizationBackend must be advantagescope, custom-ui, both, or none")
+    if not config["advantageScope"] and config["visualizationBackend"] == "advantagescope":
+        config["visualizationBackend"] = "none"
+    config["advantageScope"] = config["visualizationBackend"] in {"advantagescope", "both"}
     if config["timesteps"] < 0:
         raise ValueError("timesteps must be >= 0")
     for key in (
@@ -265,6 +280,11 @@ def validation_report(
         warnings.append(
             "2025 robot profile changes training dynamics; retrain or resume only from a compatible model."
         )
+    if (
+        config["visualizationBackend"] == "both"
+        and config["advantagePort"] == config["customUiPort"]
+    ):
+        warnings.append("AdvantageScope and Custom UI should use different ports.")
     if rollout_size < 2:
         errors.append("rollout size must be at least 2")
     if config["batchSize"] > rollout_size:
@@ -392,8 +412,14 @@ def build_train_command(config: dict[str, Any]) -> list[str]:
         str(config["pretrainSamples"]),
         "--pretrain-heuristic-epochs",
         str(config["pretrainEpochs"]),
+        "--visualization-backend",
+        config["visualizationBackend"],
         "--advantage-port",
         str(config["advantagePort"]),
+        "--custom-ui-port",
+        str(config["customUiPort"]),
+        "--custom-ui-state",
+        config["customUiState"],
         "--viz-every-steps",
         str(config["vizEverySteps"]),
         "--viz-preview-steps",
@@ -403,6 +429,8 @@ def build_train_command(config: dict[str, Any]) -> list[str]:
         "--metrics-every-steps",
         str(config["metricsEverySteps"]),
     ]
+    if config["visualizationBackend"] != "none":
+        cmd.append("--open-visualizer")
     if config["checkpointEval"] and config["checkpointEverySteps"] > 0:
         cmd.extend(
             [
@@ -419,7 +447,7 @@ def build_train_command(config: dict[str, Any]) -> list[str]:
         cmd.extend(["--resume-from", config["resumeFrom"]])
     if not config["heuristicPretrain"]:
         cmd.append("--skip-heuristic-pretrain")
-    if not config["advantageScope"]:
+    if config["visualizationBackend"] == "none":
         cmd.append("--no-advantagescope")
     if not config["variedDefense"]:
         cmd.append("--fixed-defense")
@@ -1590,14 +1618,15 @@ INDEX_HTML = r"""<!doctype html>
             <select id="savedConfigSelect"></select>
             <button id="loadConfigButton" type="button">Load</button>
             <button id="deleteConfigButton" type="button">Delete</button>
-            <button id="advantageHelpButton" type="button">AdvantageScope instructions</button>
+            <button id="advantageHelpButton" type="button">Visualization help</button>
           </div>
           <div id="advantageHelp" class="helpPanel">
-            <strong>AdvantageScope live preview</strong>
+            <strong>Live preview options</strong>
             <ol>
-              <li>Start a run with AdvantageScope enabled.</li>
-              <li>Open AdvantageScope and connect NetworkTables to 127.0.0.1 on the configured NT port.</li>
-              <li>Use the robot pose, coral, defense robot, and event streams to inspect rollout behavior while PPO trains.</li>
+              <li>Use AdvantageScope when you want NetworkTables topics and the standard 2D Field workflow.</li>
+              <li>Use Custom UI when you want the built-in 2025 REEFSCAPE field, reef/source highlights, and AI intent panel.</li>
+              <li>Use Both when comparing the custom dashboard against AdvantageScope during training.</li>
+              <li>Use No visualizer when you only want logs, metrics, checkpoints, and model artifacts.</li>
             </ol>
           </div>
           <form id="settingsForm" class="settings">
@@ -1660,10 +1689,6 @@ INDEX_HTML = r"""<!doctype html>
                   <input data-key="variedDefense" type="checkbox">
                   Varied defense
                 </label>
-                <label class="check">
-                  <input data-key="advantageScope" type="checkbox">
-                  AdvantageScope
-                </label>
               </div>
               <div class="formGrid">
                 <label>Pretrain samples
@@ -1704,8 +1729,19 @@ INDEX_HTML = r"""<!doctype html>
             <fieldset>
               <legend>Telemetry</legend>
               <div class="formGrid">
+                <label>Live preview
+                  <select data-key="visualizationBackend">
+                    <option value="custom-ui">Visualize in custom visualizer</option>
+                    <option value="advantagescope">Visualize in AdvantageScope</option>
+                    <option value="both">Open both visualizers</option>
+                    <option value="none">No visualizer</option>
+                  </select>
+                </label>
                 <label>NT port
                   <input data-key="advantagePort" type="number" min="1" step="1">
+                </label>
+                <label>Custom UI port
+                  <input data-key="customUiPort" type="number" min="1" step="1">
                 </label>
                 <label>Preview every
                   <input data-key="vizEverySteps" type="number" min="1" step="1">
@@ -1718,6 +1754,9 @@ INDEX_HTML = r"""<!doctype html>
                 </label>
                 <label class="wide">Metrics file
                   <input data-key="metricsOut" type="text">
+                </label>
+                <label class="wide">Custom UI state
+                  <input data-key="customUiState" type="text">
                 </label>
               </div>
             </fieldset>
@@ -1779,7 +1818,7 @@ INDEX_HTML = r"""<!doctype html>
     const numberKeys = new Set([
       "timesteps", "nEnvs", "nSteps", "batchSize", "learningRate",
       "checkpointEverySteps", "keepCheckpoints", "pretrainSamples",
-      "pretrainEpochs", "advantagePort", "vizEverySteps",
+      "pretrainEpochs", "advantagePort", "customUiPort", "vizEverySteps",
       "vizPreviewSteps", "metricsEverySteps", "evalEpisodes"
     ]);
     const checkboxKeys = new Set([
@@ -1889,7 +1928,8 @@ INDEX_HTML = r"""<!doctype html>
         learningRate: "PPO optimizer learning rate.",
         heuristicPretrain: "Bootstrap the policy from the heuristic before PPO starts.",
         variedDefense: "Randomize defense robot behavior during training.",
-        advantageScope: "Publish live training preview data over NetworkTables.",
+        visualizationBackend: "Choose whether WebTrain opens AdvantageScope, the custom visualizer, both, or no live field preview.",
+        advantageScope: "Compatibility setting for older saved configs.",
         checkpointDir: "Folder for checkpoint .zip files.",
         checkpointEverySteps: "Save a checkpoint every N timesteps; 0 disables checkpoints.",
         keepCheckpoints: "How many rotating checkpoints to keep.",
@@ -1898,6 +1938,8 @@ INDEX_HTML = r"""<!doctype html>
         bestModelOut: "Output path without .zip for the best checkpoint model.",
         evalMetricsOut: "JSONL file containing checkpoint evaluation summaries.",
         advantagePort: "NetworkTables port for AdvantageScope.",
+        customUiPort: "Local web port for the custom REEFSCAPE visualizer.",
+        customUiState: "JSON snapshot file read by the custom visualizer while training runs.",
         metricsOut: "Training metric JSONL file used by graphs."
       };
       form.querySelectorAll("[data-key]").forEach((input) => {
