@@ -170,7 +170,14 @@ class FileBackedVisualizerState:
     def snapshot(self) -> dict[str, Any]:
         if not self.path.exists():
             raise RuntimeError(f"waiting for training state: {self.path}")
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        last_error: Exception | None = None
+        for _ in range(8):
+            try:
+                return json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                last_error = exc
+                time.sleep(0.025)
+        raise RuntimeError(f"waiting for stable training state: {last_error}")
 
     def control(self, payload: dict[str, Any]) -> dict[str, Any]:
         action = str(payload.get("action", "")).strip()
