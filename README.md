@@ -99,6 +99,19 @@ python -m compileall reefscape_rl scripts tests
 reefscape-doctor
 ```
 
+## Release builds
+
+Build local release artifacts into `dist/`:
+
+```powershell
+.\scripts\build_release.ps1
+```
+
+The release script runs Ruff, tests, compile checks, builds the wheel/sdist, and
+writes `dist/release-manifest.json` with SHA-256 hashes. To publish on GitHub,
+push a version tag such as `v0.1.0`; the `release` workflow builds the artifacts
+and attaches them to a GitHub Release.
+
 If CUDA is unavailable on a development machine, use `--device auto` or
 `--device cpu` for smoke tests, but keep CUDA as the default path.
 
