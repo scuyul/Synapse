@@ -175,6 +175,14 @@ func (s *appState) commands(python string, pythonErr error) []commandSpec {
 			Args:        []string{python, "scripts/reefscape_visualizer.py"},
 		},
 		{
+			ID:          "deps",
+			Label:       "Install Training Dependencies",
+			Description: "Install CUDA/PyTorch/RL dependencies. This is the slow download-heavy step.",
+			Disabled:    pythonDisabled,
+			Kind:        "setup",
+			Args:        installTrainingDepsArgs(s.repoRoot),
+		},
+		{
 			ID:          "doctor",
 			Label:       "Run Doctor",
 			Description: "Check the Python environment and simulator setup.",
@@ -373,7 +381,11 @@ func releaseBuildArgs(repoRoot string, python string) []string {
 }
 
 func setupVenvArgs(repoRoot string) []string {
-	return powershellArgs(filepath.Join(repoRoot, "scripts", "setup_venv.ps1"), "-BootstrapPython")
+	return powershellArgs(filepath.Join(repoRoot, "scripts", "setup_venv.ps1"), "-BootstrapPython", "-SkipRequirements")
+}
+
+func installTrainingDepsArgs(repoRoot string) []string {
+	return powershellArgs(filepath.Join(repoRoot, "scripts", "install_training_deps.ps1"))
 }
 
 func buildInstallerArgs(repoRoot string) []string {

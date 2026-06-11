@@ -2,7 +2,8 @@ param(
     [string]$Python = "",
     [string]$VenvPath = ".venv",
     [string]$PythonInstaller = "",
-    [switch]$BootstrapPython
+    [switch]$BootstrapPython,
+    [switch]$SkipRequirements
 )
 
 $ErrorActionPreference = "Stop"
@@ -143,10 +144,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "pip upgrade failed with exit code $LASTEXITCODE."
 }
 
-Write-Host "Installing CUDA runtime requirements"
-& $venvPython -m pip install -r requirements.txt
-if ($LASTEXITCODE -ne 0) {
-    throw "requirements install failed with exit code $LASTEXITCODE."
+if ($SkipRequirements) {
+    Write-Host "Skipping CUDA/training requirements for fast app install."
+    Write-Host "Install them later from the app with: Install Training Dependencies"
+}
+else {
+    Write-Host "Installing CUDA runtime requirements"
+    & $venvPython -m pip install -r requirements.txt
+    if ($LASTEXITCODE -ne 0) {
+        throw "requirements install failed with exit code $LASTEXITCODE."
+    }
 }
 
 Write-Host "Installing package in editable mode"

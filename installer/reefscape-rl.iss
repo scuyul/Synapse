@@ -32,5 +32,5 @@ Name: "{group}\Setup Python Environment"; Filename: "{app}\Setup Python Environm
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\setup_venv.ps1"" -BootstrapPython -PythonInstaller ""{tmp}\python-3.13.13-amd64.exe"""; StatusMsg: "Installing Python environment..."; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\setup_venv.ps1"" -BootstrapPython -SkipRequirements -PythonInstaller ""{tmp}\python-3.13.13-amd64.exe"""; StatusMsg: "Installing Python environment..."; Flags: waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Reefscape RL"; Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"
