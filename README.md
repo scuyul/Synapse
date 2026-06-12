@@ -47,6 +47,23 @@ Maintenance and release commands are available through a separate management men
 python .\manage.py
 ```
 
+This branch also includes an experimental Go app launcher. It compiles a native
+wrapper that finds the repo, picks `.venv` Python when available, and opens the
+main training, management, studio, visualizer, diagnostics, and release commands.
+Builds are written to `builds/`:
+
+```powershell
+.\build.bat
+.\builds\ReefscapeRL\ReefscapeRL.exe
+```
+
+The build also creates `builds\ReefscapeRL-portable.zip`. To build a normal
+Windows installer, install Inno Setup and run:
+
+```powershell
+.\build.bat --installer
+```
+
 Open the REEFSCAPE-specific visualizer for a custom 2025 game view. It runs a
 local browser dashboard with the reef, coral stations, objective, traffic robot,
 AI focus, and scoring state already wired in:

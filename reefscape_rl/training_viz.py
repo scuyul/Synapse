@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
@@ -173,9 +174,28 @@ class CustomUiTrainingCallback(BaseCallback):
             "previewEpisode": int(self.preview_episode),
             "previewReturn": float(self.preview_return),
         }
-        tmp_path = self.config.state_path.with_suffix(".tmp")
+        tmp_path = self.config.state_path.with_name(
+            f"{self.config.state_path.stem}.{os.getpid()}.tmp"
+        )
         tmp_path.write_text(json.dumps(payload), encoding="utf-8")
-        tmp_path.replace(self.config.state_path)
+        for attempt in range(8):
+            try:
+                tmp_path.replace(self.config.state_path)
+                return
+            except PermissionError:
+                if attempt == 7:
+                    break
+                time.sleep(0.025 * (attempt + 1))
+
+        try:
+            self.config.state_path.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError as exc:
+            print(f"Warning: could not update custom visualizer state: {exc}")
+        finally:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _start_visualizer_server(self) -> None:
         script = Path(__file__).resolve().parents[1] / "scripts" / "reefscape_visualizer.py"

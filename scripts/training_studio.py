@@ -267,6 +267,13 @@ def validation_report(
     warnings: list[str] = []
     rollout_size = config["nEnvs"] * config["nSteps"]
 
+    missing_packages = get_missing_training_packages()
+    if missing_packages:
+        errors.append(
+            "Training dependencies are missing: "
+            + ", ".join(missing_packages)
+            + ". Click Install Training Dependencies before starting."
+        )
     if config["device"] == "cuda" and not status["cudaAvailable"]:
         torch_version = status.get("torchVersion") or "not installed"
         errors.append(
@@ -317,6 +324,23 @@ def validation_report(
     if config["pretrainSamples"] > 250_000:
         warnings.append("large heuristic pretrain sample counts can delay the first PPO update.")
     return {"errors": errors, "warnings": warnings}
+
+
+def get_missing_training_packages() -> list[str]:
+    checks = {
+        "stable-baselines3": "stable_baselines3",
+        "gymnasium": "gymnasium",
+        "torch": "torch",
+        "robotpy": "robotpy",
+        "pygame": "pygame",
+    }
+    missing = []
+    for package_name, module_name in checks.items():
+        try:
+            __import__(module_name)
+        except ImportError:
+            missing.append(package_name)
+    return missing
 
 
 def get_compute_status() -> dict[str, Any]:
@@ -454,6 +478,29 @@ def build_train_command(config: dict[str, Any]) -> list[str]:
     return cmd
 
 
+def _build_dependency_install_command() -> list[str]:
+    script = REPO_ROOT / "scripts" / "install_training_deps.ps1"
+    if os.name == "nt":
+        powershell = shutil.which("pwsh") or shutil.which("powershell") or "powershell"
+        return [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+        ]
+    return ["pwsh", "-NoProfile", "-File", str(script)]
+
+
+def _process_kind(run_id: str | None) -> str:
+    if run_id == "__dependency__":
+        return "dependency"
+    if run_id == "__artifact__":
+        return "artifact"
+    return "training" if run_id else ""
+
+
 class TrainingStudioState:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -541,6 +588,13 @@ class TrainingStudioState:
         action = str(payload.get("action", "")).strip()
         path = _safe_artifact_path(payload.get("path", ""))
         cmd = _build_artifact_process(action, path)
+        return self._start_process(cmd, kind="artifact")
+
+    def install_training_dependencies(self) -> dict[str, Any]:
+        cmd = _build_dependency_install_command()
+        return self._start_process(cmd, kind="dependency")
+
+    def _start_process(self, cmd: list[str], *, kind: str) -> dict[str, Any]:
         env = dict(os.environ)
         env["PYTHONUNBUFFERED"] = "1"
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
@@ -555,7 +609,7 @@ class TrainingStudioState:
             self._return_code = None
             self._last_config = dict(DEFAULT_CONFIG)
             self._metrics_path = None
-            self._run_id = None
+            self._run_id = f"__{kind}__"
             self._process = subprocess.Popen(
                 cmd,
                 cwd=REPO_ROOT,
@@ -616,6 +670,7 @@ class TrainingStudioState:
                 "running": running,
                 "pid": process.pid if process is not None and running else None,
                 "returnCode": self._return_code,
+                "processKind": _process_kind(self._run_id),
                 "command": self._command,
                 "logs": list(self._logs),
                 "startedAt": self._started_at,
@@ -628,6 +683,8 @@ class TrainingStudioState:
         payload["compute"] = get_compute_status()
         payload["gpu"] = get_gpu_stats()
         payload["metrics"] = _read_metrics(metrics_path)
+        payload["activity"] = _current_activity(payload)
+        payload["dependencies"] = {"missing": get_missing_training_packages()}
         payload["artifacts"] = _list_artifacts()
         payload["runs"] = _list_runs()
         payload["savedConfigs"] = _list_saved_configs()
@@ -648,8 +705,13 @@ class TrainingStudioState:
             if self._process is process:
                 self._return_code = int(return_code)
                 self._finished_at = time.time()
-                self._logs.append(f"Training process exited with code {return_code}.")
-                if self._run_id is not None:
+                label = "Training"
+                if self._run_id == "__dependency__":
+                    label = "Dependency install"
+                elif self._run_id == "__artifact__":
+                    label = "Artifact process"
+                self._logs.append(f"{label} exited with code {return_code}.")
+                if self._run_id is not None and not self._run_id.startswith("__"):
                     _finish_run(self._run_id, self._finished_at, int(return_code))
 
 
@@ -677,6 +739,7 @@ class TrainingStudioHandler(BaseHTTPRequestHandler):
                     "config": DEFAULT_CONFIG,
                     "compute": get_compute_status(),
                     "gpu": get_gpu_stats(),
+                    "dependencies": {"missing": get_missing_training_packages()},
                     "presets": sorted(RUN_PRESETS),
                     "savedConfigs": _list_saved_configs(),
                     "runs": _list_runs(),
@@ -697,6 +760,8 @@ class TrainingStudioHandler(BaseHTTPRequestHandler):
                 self._send_json(
                     self.server.state.stop_training(mode=str(payload.get("mode", "graceful")))
                 )
+            elif path == "/api/dependencies/install":
+                self._send_json(self.server.state.install_training_dependencies())
             elif path == "/api/validate":
                 config = normalize_config(payload)
                 self._send_json(
@@ -836,6 +901,127 @@ def _read_metrics(path: Path | None, *, limit: int = 1_000) -> list[dict[str, An
         if isinstance(row, dict):
             metrics.append(row)
     return metrics
+
+
+def _current_activity(status: dict[str, Any]) -> dict[str, Any]:
+    running = bool(status.get("running"))
+    return_code = status.get("returnCode")
+    logs = [str(line) for line in status.get("logs", [])]
+    metrics = status.get("metrics", [])
+    config = status.get("config", {})
+    total = int(config.get("timesteps") or 0)
+    latest = metrics[-1] if metrics else {}
+    steps = int(latest.get("num_timesteps") or 0)
+    percent = (steps / total * 100) if total > 0 else None
+    percent = max(0.0, min(100.0, percent)) if percent is not None else None
+    process_kind = str(status.get("processKind", ""))
+
+    if not running:
+        if process_kind == "dependency" and return_code is not None:
+            if int(return_code) == 0:
+                return {
+                    "label": "Dependencies installed",
+                    "detail": "Training packages are ready. You can start training now.",
+                    "percent": 100,
+                    "indeterminate": False,
+                }
+            return {
+                "label": "Dependency install failed",
+                "detail": f"Installer exited with code {return_code}. Check Logs for pip output.",
+                "percent": 0,
+                "indeterminate": False,
+            }
+        if return_code is None:
+            return {
+                "label": "Ready",
+                "detail": "Configure a run, then press Start.",
+                "percent": 0,
+                "indeterminate": False,
+            }
+        if int(return_code) == 0:
+            return {
+                "label": "Finished",
+                "detail": f"Completed at {_format_steps(steps)} steps.",
+                "percent": 100 if total > 0 and steps >= total else percent or 0,
+                "indeterminate": False,
+            }
+        return {
+            "label": "Stopped with error",
+            "detail": f"Process exited with code {return_code}. Check Logs for the last message.",
+            "percent": percent or 0,
+            "indeterminate": False,
+        }
+
+    if process_kind == "dependency":
+        last_line = logs[-1] if logs else "Installing Python packages from requirements.txt."
+        return _activity("Installing dependencies", last_line, None, indeterminate=True)
+    if process_kind == "artifact":
+        last_line = logs[-1] if logs else "Running model artifact command."
+        return _activity("Processing artifact", last_line, None, indeterminate=True)
+
+    recent = "\n".join(logs[-12:]).lower()
+    last_line = logs[-1] if logs else ""
+    if "stopping training" in recent:
+        return _activity("Stopping", "Waiting for the trainer to save or exit.", percent)
+    if "checkpoint saved" in recent:
+        return _activity("Saving checkpoint", last_line, percent)
+    if "checkpoint evaluation" in recent or "new best model" in recent:
+        return _activity("Evaluating checkpoint", last_line, percent)
+    if "heuristic pretrain epoch" in recent or "heuristic pretraining" in recent:
+        return _activity("Heuristic pretraining", last_line, percent)
+    if (
+        "custom reefscape visualizer started" in recent
+        or "advantagescope training stream started" in recent
+    ):
+        return _activity("Starting live preview", last_line, percent)
+    if "training metrics will be written" in recent and not metrics:
+        return _activity(
+            "Waiting for first metrics",
+            "PPO is starting. Metrics appear after the first telemetry interval.",
+            percent,
+            indeterminate=True,
+        )
+    if metrics:
+        parts = [f"{_format_steps(steps)} steps"]
+        fps = latest.get("time/fps")
+        reward = latest.get("rollout/ep_rew_mean")
+        if isinstance(fps, int | float):
+            parts.append(f"{fps:.0f} FPS")
+        if isinstance(reward, int | float):
+            parts.append(f"reward {reward:.3g}")
+        if total > 0:
+            parts[0] = f"{_format_steps(steps)} / {_format_steps(total)} steps"
+        return _activity("Training PPO", " | ".join(parts), percent)
+    if "using device:" in recent:
+        return _activity("Initializing trainer", last_line, percent, indeterminate=True)
+    if logs:
+        return _activity("Launching trainer", last_line, percent, indeterminate=True)
+    return _activity(
+        "Launching trainer", "Starting the training process.", percent, indeterminate=True
+    )
+
+
+def _activity(
+    label: str,
+    detail: str,
+    percent: float | None,
+    *,
+    indeterminate: bool = False,
+) -> dict[str, Any]:
+    return {
+        "label": label,
+        "detail": detail,
+        "percent": percent,
+        "indeterminate": indeterminate,
+    }
+
+
+def _format_steps(value: int) -> str:
+    if abs(value) >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if abs(value) >= 1_000:
+        return f"{value / 1_000:.1f}k"
+    return str(value)
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -1241,6 +1427,31 @@ INDEX_HTML = r"""<!doctype html>
       height: 100%;
       background: var(--accent);
       box-shadow: 0 0 14px var(--accent-glow);
+      transition: width 180ms ease;
+    }
+    .progress.indeterminate > div {
+      width: 38%;
+      animation: progressPulse 1.2s ease-in-out infinite;
+    }
+    @keyframes progressPulse {
+      0% { transform: translateX(-115%); }
+      100% { transform: translateX(280%); }
+    }
+    .activityPanel {
+      display: grid;
+      gap: 5px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--panel) 90%, var(--accent-strong));
+      font-size: 12px;
+    }
+    .activityPanel strong {
+      color: var(--accent);
+    }
+    .activityPanel span {
+      color: var(--muted);
+      overflow-wrap: anywhere;
     }
     main {
       min-width: 0;
@@ -1385,6 +1596,66 @@ INDEX_HTML = r"""<!doctype html>
     .charts {
       display: grid;
       gap: 14px;
+    }
+    .viewTabs {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .tabButtons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tabButton.active {
+      color: #1d0b00;
+      border-color: var(--accent);
+      background: var(--accent);
+      font-weight: 800;
+    }
+    .tabActions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .tabPanel[hidden] {
+      display: none;
+    }
+    .visualizerPanel {
+      display: grid;
+      gap: 10px;
+    }
+    .visualizerFrameWrap {
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+    }
+    .visualizerFrame {
+      display: block;
+      width: 100%;
+      height: 620px;
+      border: 0;
+      background: var(--code);
+    }
+    .visualizerStatus {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      overflow-wrap: anywhere;
     }
     canvas {
       width: 900px;
@@ -1564,10 +1835,18 @@ INDEX_HTML = r"""<!doctype html>
           <span>Compute</span>
           <strong id="computeValue">Checking</strong>
         </div>
-        <div class="progress"><div id="progressFill"></div></div>
+        <div id="progressTrack" class="progress"><div id="progressFill"></div></div>
         <div class="statusRow">
           <span>Progress</span>
           <strong id="progressValue">0%</strong>
+        </div>
+        <div class="activityPanel">
+          <strong id="activityLabel">Ready</strong>
+          <span id="activityDetail">Configure a run, then press Start.</span>
+        </div>
+        <div class="miniPanel">
+          <strong>Dependencies</strong>
+          <span id="dependencyValue">Checking</span>
         </div>
         <div class="miniPanel">
           <strong>GPU</strong>
@@ -1576,6 +1855,7 @@ INDEX_HTML = r"""<!doctype html>
         </div>
         <div class="sideActions">
           <button id="simpleTrainButton" class="primary" type="button" title="Launch recommended CUDA training settings immediately.">Simple train</button>
+          <button id="installDepsButton" type="button" title="Install stable-baselines3, PyTorch, Gymnasium, RobotPy, and pygame.">Install dependencies</button>
           <button id="startButton" class="primary" type="button">Start</button>
           <button id="copyCommandButton" type="button" title="Copy the current launch command to the clipboard.">Copy command</button>
           <button id="openModelFolderButton" type="button" title="Open the folder that will receive the model artifact.">Open model folder</button>
@@ -1763,7 +2043,16 @@ INDEX_HTML = r"""<!doctype html>
           </form>
         </section>
         <div class="charts">
-          <section class="panel">
+          <div class="viewTabs">
+            <div class="tabButtons" role="tablist" aria-label="Training views">
+              <button id="metricsTabButton" class="tabButton active" type="button" role="tab" aria-controls="metricsPanel" aria-selected="true">Metrics</button>
+              <button id="visualizerTabButton" class="tabButton" type="button" role="tab" aria-controls="visualizerPanel" aria-selected="false">Visualizer</button>
+            </div>
+            <div class="tabActions">
+              <button id="popoutVisualizerButton" type="button">Pop out visualizer</button>
+            </div>
+          </div>
+          <section id="metricsPanel" class="panel tabPanel" role="tabpanel" aria-labelledby="metricsTabButton">
             <div class="panelHeader">
               <h2>Metrics</h2>
               <span id="metricCount">0 points</span>
@@ -1793,6 +2082,19 @@ INDEX_HTML = r"""<!doctype html>
               </div>
             </div>
             <div id="metricGrid" class="metricGrid"></div>
+          </section>
+          <section id="visualizerPanel" class="panel tabPanel visualizerPanel" role="tabpanel" aria-labelledby="visualizerTabButton" hidden>
+            <div class="panelHeader">
+              <h2>Custom Visualizer</h2>
+              <span id="visualizerMode">waiting</span>
+            </div>
+            <div class="visualizerStatus">
+              <span id="visualizerStatus">Custom visualizer starts when a run uses Visualize in custom visualizer or Open both visualizers.</span>
+              <span id="visualizerUrl">-</span>
+            </div>
+            <div class="visualizerFrameWrap">
+              <iframe id="visualizerFrame" class="visualizerFrame" title="REEFSCAPE custom visualizer"></iframe>
+            </div>
           </section>
           <div class="lower">
             <section class="panel">
@@ -1840,9 +2142,12 @@ INDEX_HTML = r"""<!doctype html>
     let defaults = {};
     let lastLogLength = 0;
     let comparisonRuns = [];
+    let activeTrainingView = "metrics";
 
     const form = document.getElementById("settingsForm");
+    const simpleTrainButton = document.getElementById("simpleTrainButton");
     const startButton = document.getElementById("startButton");
+    const installDepsButton = document.getElementById("installDepsButton");
     const stopButton = document.getElementById("stopButton");
     const resetButton = document.getElementById("resetButton");
     const stopMode = document.getElementById("stopMode");
@@ -1909,6 +2214,8 @@ INDEX_HTML = r"""<!doctype html>
       applyTooltips();
       renderCompute(computeStatus);
       renderGpu(data.gpu);
+      renderDependencies(data.dependencies?.missing || []);
+      renderVisualizerTab({running: false, config: defaults});
       renderSavedConfigs(data.savedConfigs || []);
       renderRuns(data.runs || []);
       initializeMetricControls();
@@ -1973,6 +2280,20 @@ INDEX_HTML = r"""<!doctype html>
         await api("/api/start", {
           method: "POST",
           body: JSON.stringify(config)
+        });
+        await refresh();
+      } catch (error) {
+        setError(error.message);
+      }
+    }
+
+    async function installDependencies() {
+      setError("");
+      setWarnings(["Installing training dependencies. This can take a while for PyTorch/CUDA."]);
+      try {
+        await api("/api/dependencies/install", {
+          method: "POST",
+          body: JSON.stringify({})
         });
         await refresh();
       } catch (error) {
@@ -2067,10 +2388,15 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderStatus(status) {
       const pill = document.getElementById("statusPill");
+      const missingDependencies = status.dependencies?.missing || [];
+      const dependenciesMissing = missingDependencies.length > 0;
       pill.textContent = status.running ? "Running" : "Idle";
       pill.className = "pill " + (status.running ? "running" : "stopped");
-      startButton.disabled = status.running;
+      startButton.disabled = status.running || dependenciesMissing;
+      simpleTrainButton.disabled = status.running || dependenciesMissing;
+      installDepsButton.disabled = status.running || !dependenciesMissing;
       stopButton.disabled = !status.running;
+      renderDependencies(missingDependencies);
       document.getElementById("pidValue").textContent = status.pid || "-";
       document.getElementById("runtimeValue").textContent = formatDuration(status.uptimeS || 0);
       document.getElementById("metricsPath").textContent = "metrics: " + (status.metricsPath || "-");
@@ -2082,6 +2408,7 @@ INDEX_HTML = r"""<!doctype html>
       }
       renderGpu(status.gpu);
       renderProgress(status);
+      renderVisualizerTab(status);
 
       const logs = status.logs || [];
       const logOutput = document.getElementById("logOutput");
@@ -2105,6 +2432,78 @@ INDEX_HTML = r"""<!doctype html>
       renderArtifacts(status.artifacts || []);
       renderSavedConfigs(status.savedConfigs || []);
       renderRuns(status.runs || []);
+    }
+
+    function renderDependencies(missing) {
+      const dependencyValue = document.getElementById("dependencyValue");
+      if (!missing || !missing.length) {
+        dependencyValue.textContent = "Ready";
+        dependencyValue.title = "All required training packages are installed.";
+        return;
+      }
+      dependencyValue.textContent = "Missing: " + missing.join(", ");
+      dependencyValue.title = "Click Install dependencies before starting training.";
+    }
+
+    function switchTrainingView(view) {
+      activeTrainingView = view;
+      const metricsActive = view === "metrics";
+      document.getElementById("metricsPanel").hidden = !metricsActive;
+      document.getElementById("visualizerPanel").hidden = metricsActive;
+      document.getElementById("metricsTabButton").classList.toggle("active", metricsActive);
+      document.getElementById("visualizerTabButton").classList.toggle("active", !metricsActive);
+      document.getElementById("metricsTabButton").setAttribute("aria-selected", metricsActive ? "true" : "false");
+      document.getElementById("visualizerTabButton").setAttribute("aria-selected", metricsActive ? "false" : "true");
+      if (view === "visualizer") {
+        renderVisualizerTab({running: false, config: readForm()});
+      }
+    }
+
+    function renderVisualizerTab(status) {
+      const config = status.running && status.config ? status.config : readForm();
+      const backend = config.visualizationBackend || "none";
+      const customEnabled = backend === "custom-ui" || backend === "both";
+      const url = visualizerUrl(config);
+      const mode = document.getElementById("visualizerMode");
+      const statusText = document.getElementById("visualizerStatus");
+      const urlText = document.getElementById("visualizerUrl");
+      const frame = document.getElementById("visualizerFrame");
+      const popout = document.getElementById("popoutVisualizerButton");
+
+      mode.textContent = customEnabled ? (status.running ? "live" : "ready") : "disabled";
+      urlText.textContent = customEnabled ? url : "-";
+      popout.disabled = !customEnabled;
+      popout.title = customEnabled ? "Open the custom visualizer in a separate browser tab." : "Select Custom UI or Both under Live preview.";
+
+      if (!customEnabled) {
+        statusText.textContent = "Select Visualize in custom visualizer or Open both visualizers to use this tab.";
+        frame.removeAttribute("src");
+        return;
+      }
+      if (!status.running) {
+        statusText.textContent = "The embedded visualizer will connect when training starts. Pop out opens the same local URL.";
+        return;
+      }
+      statusText.textContent = "Showing the live custom visualizer from the current training run.";
+      if (frame.getAttribute("src") !== url) {
+        frame.setAttribute("src", url);
+      }
+    }
+
+    function visualizerUrl(config) {
+      const port = Number(config.customUiPort || 8775);
+      const safePort = Number.isFinite(port) && port > 0 ? port : 8775;
+      return "http://127.0.0.1:" + safePort;
+    }
+
+    function popoutVisualizer() {
+      const config = readForm();
+      const backend = config.visualizationBackend || "none";
+      if (backend !== "custom-ui" && backend !== "both") {
+        setWarnings(["Select Visualize in custom visualizer or Open both visualizers first."]);
+        return;
+      }
+      window.open(visualizerUrl(config), "_blank", "noopener,noreferrer");
     }
 
     function renderCompute(compute) {
@@ -2152,10 +2551,22 @@ INDEX_HTML = r"""<!doctype html>
       const total = Number(status.config?.timesteps || 0);
       const latest = (status.metrics || []).length ? status.metrics[status.metrics.length - 1] : {};
       const steps = Number(latest.num_timesteps || 0);
-      const pct = total > 0 ? Math.max(0, Math.min(100, (steps / total) * 100)) : 0;
-      document.getElementById("progressFill").style.width = pct.toFixed(1) + "%";
+      const activity = status.activity || {};
+      const progressTrack = document.getElementById("progressTrack");
+      const progressFill = document.getElementById("progressFill");
+      const rawPct = Number(activity.percent);
+      const pct = Number.isFinite(rawPct)
+        ? Math.max(0, Math.min(100, rawPct))
+        : (total > 0 ? Math.max(0, Math.min(100, (steps / total) * 100)) : 0);
+
+      progressTrack.classList.toggle("indeterminate", Boolean(activity.indeterminate));
+      if (!activity.indeterminate) {
+        progressFill.style.width = pct.toFixed(1) + "%";
+      }
       document.getElementById("progressValue").textContent =
-        total > 0 ? `${pct.toFixed(1)}%` : "until stopped";
+        activity.indeterminate ? "working..." : (total > 0 ? `${pct.toFixed(1)}%` : "until stopped");
+      document.getElementById("activityLabel").textContent = activity.label || (status.running ? "Working" : "Ready");
+      document.getElementById("activityDetail").textContent = activity.detail || "-";
     }
 
     function renderKpis(metrics) {
@@ -2617,7 +3028,11 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     startButton.addEventListener("click", startTraining);
+    installDepsButton.addEventListener("click", installDependencies);
     document.getElementById("simpleTrainButton").addEventListener("click", simpleTrain);
+    document.getElementById("metricsTabButton").addEventListener("click", () => switchTrainingView("metrics"));
+    document.getElementById("visualizerTabButton").addEventListener("click", () => switchTrainingView("visualizer"));
+    document.getElementById("popoutVisualizerButton").addEventListener("click", popoutVisualizer);
     stopButton.addEventListener("click", stopTraining);
     resetButton.addEventListener("click", () => fillForm(defaults));
     document.getElementById("copyCommandButton").addEventListener("click", copyCommand);
@@ -2646,6 +3061,8 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById("metricSelect").addEventListener("change", refresh);
     document.getElementById("zoomInput").addEventListener("input", refresh);
     document.getElementById("smoothInput").addEventListener("input", refresh);
+    form.addEventListener("input", () => renderVisualizerTab({running: false, config: readForm()}));
+    form.addEventListener("change", () => renderVisualizerTab({running: false, config: readForm()}));
     if (localStorage.getItem("reefscapeStudioDark") === "1") {
       document.body.classList.add("dark");
     }
