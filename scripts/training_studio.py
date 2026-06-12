@@ -1597,6 +1597,66 @@ INDEX_HTML = r"""<!doctype html>
       display: grid;
       gap: 14px;
     }
+    .viewTabs {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .tabButtons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tabButton.active {
+      color: #1d0b00;
+      border-color: var(--accent);
+      background: var(--accent);
+      font-weight: 800;
+    }
+    .tabActions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .tabPanel[hidden] {
+      display: none;
+    }
+    .visualizerPanel {
+      display: grid;
+      gap: 10px;
+    }
+    .visualizerFrameWrap {
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+    }
+    .visualizerFrame {
+      display: block;
+      width: 100%;
+      height: 620px;
+      border: 0;
+      background: var(--code);
+    }
+    .visualizerStatus {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      overflow-wrap: anywhere;
+    }
     canvas {
       width: 900px;
       height: 260px;
@@ -1983,7 +2043,16 @@ INDEX_HTML = r"""<!doctype html>
           </form>
         </section>
         <div class="charts">
-          <section class="panel">
+          <div class="viewTabs">
+            <div class="tabButtons" role="tablist" aria-label="Training views">
+              <button id="metricsTabButton" class="tabButton active" type="button" role="tab" aria-controls="metricsPanel" aria-selected="true">Metrics</button>
+              <button id="visualizerTabButton" class="tabButton" type="button" role="tab" aria-controls="visualizerPanel" aria-selected="false">Visualizer</button>
+            </div>
+            <div class="tabActions">
+              <button id="popoutVisualizerButton" type="button">Pop out visualizer</button>
+            </div>
+          </div>
+          <section id="metricsPanel" class="panel tabPanel" role="tabpanel" aria-labelledby="metricsTabButton">
             <div class="panelHeader">
               <h2>Metrics</h2>
               <span id="metricCount">0 points</span>
@@ -2013,6 +2082,19 @@ INDEX_HTML = r"""<!doctype html>
               </div>
             </div>
             <div id="metricGrid" class="metricGrid"></div>
+          </section>
+          <section id="visualizerPanel" class="panel tabPanel visualizerPanel" role="tabpanel" aria-labelledby="visualizerTabButton" hidden>
+            <div class="panelHeader">
+              <h2>Custom Visualizer</h2>
+              <span id="visualizerMode">waiting</span>
+            </div>
+            <div class="visualizerStatus">
+              <span id="visualizerStatus">Custom visualizer starts when a run uses Visualize in custom visualizer or Open both visualizers.</span>
+              <span id="visualizerUrl">-</span>
+            </div>
+            <div class="visualizerFrameWrap">
+              <iframe id="visualizerFrame" class="visualizerFrame" title="REEFSCAPE custom visualizer"></iframe>
+            </div>
           </section>
           <div class="lower">
             <section class="panel">
@@ -2060,6 +2142,7 @@ INDEX_HTML = r"""<!doctype html>
     let defaults = {};
     let lastLogLength = 0;
     let comparisonRuns = [];
+    let activeTrainingView = "metrics";
 
     const form = document.getElementById("settingsForm");
     const simpleTrainButton = document.getElementById("simpleTrainButton");
@@ -2132,6 +2215,7 @@ INDEX_HTML = r"""<!doctype html>
       renderCompute(computeStatus);
       renderGpu(data.gpu);
       renderDependencies(data.dependencies?.missing || []);
+      renderVisualizerTab({running: false, config: defaults});
       renderSavedConfigs(data.savedConfigs || []);
       renderRuns(data.runs || []);
       initializeMetricControls();
@@ -2324,6 +2408,7 @@ INDEX_HTML = r"""<!doctype html>
       }
       renderGpu(status.gpu);
       renderProgress(status);
+      renderVisualizerTab(status);
 
       const logs = status.logs || [];
       const logOutput = document.getElementById("logOutput");
@@ -2358,6 +2443,67 @@ INDEX_HTML = r"""<!doctype html>
       }
       dependencyValue.textContent = "Missing: " + missing.join(", ");
       dependencyValue.title = "Click Install dependencies before starting training.";
+    }
+
+    function switchTrainingView(view) {
+      activeTrainingView = view;
+      const metricsActive = view === "metrics";
+      document.getElementById("metricsPanel").hidden = !metricsActive;
+      document.getElementById("visualizerPanel").hidden = metricsActive;
+      document.getElementById("metricsTabButton").classList.toggle("active", metricsActive);
+      document.getElementById("visualizerTabButton").classList.toggle("active", !metricsActive);
+      document.getElementById("metricsTabButton").setAttribute("aria-selected", metricsActive ? "true" : "false");
+      document.getElementById("visualizerTabButton").setAttribute("aria-selected", metricsActive ? "false" : "true");
+      if (view === "visualizer") {
+        renderVisualizerTab({running: false, config: readForm()});
+      }
+    }
+
+    function renderVisualizerTab(status) {
+      const config = status.running && status.config ? status.config : readForm();
+      const backend = config.visualizationBackend || "none";
+      const customEnabled = backend === "custom-ui" || backend === "both";
+      const url = visualizerUrl(config);
+      const mode = document.getElementById("visualizerMode");
+      const statusText = document.getElementById("visualizerStatus");
+      const urlText = document.getElementById("visualizerUrl");
+      const frame = document.getElementById("visualizerFrame");
+      const popout = document.getElementById("popoutVisualizerButton");
+
+      mode.textContent = customEnabled ? (status.running ? "live" : "ready") : "disabled";
+      urlText.textContent = customEnabled ? url : "-";
+      popout.disabled = !customEnabled;
+      popout.title = customEnabled ? "Open the custom visualizer in a separate browser tab." : "Select Custom UI or Both under Live preview.";
+
+      if (!customEnabled) {
+        statusText.textContent = "Select Visualize in custom visualizer or Open both visualizers to use this tab.";
+        frame.removeAttribute("src");
+        return;
+      }
+      if (!status.running) {
+        statusText.textContent = "The embedded visualizer will connect when training starts. Pop out opens the same local URL.";
+        return;
+      }
+      statusText.textContent = "Showing the live custom visualizer from the current training run.";
+      if (frame.getAttribute("src") !== url) {
+        frame.setAttribute("src", url);
+      }
+    }
+
+    function visualizerUrl(config) {
+      const port = Number(config.customUiPort || 8775);
+      const safePort = Number.isFinite(port) && port > 0 ? port : 8775;
+      return "http://127.0.0.1:" + safePort;
+    }
+
+    function popoutVisualizer() {
+      const config = readForm();
+      const backend = config.visualizationBackend || "none";
+      if (backend !== "custom-ui" && backend !== "both") {
+        setWarnings(["Select Visualize in custom visualizer or Open both visualizers first."]);
+        return;
+      }
+      window.open(visualizerUrl(config), "_blank", "noopener,noreferrer");
     }
 
     function renderCompute(compute) {
@@ -2884,6 +3030,9 @@ INDEX_HTML = r"""<!doctype html>
     startButton.addEventListener("click", startTraining);
     installDepsButton.addEventListener("click", installDependencies);
     document.getElementById("simpleTrainButton").addEventListener("click", simpleTrain);
+    document.getElementById("metricsTabButton").addEventListener("click", () => switchTrainingView("metrics"));
+    document.getElementById("visualizerTabButton").addEventListener("click", () => switchTrainingView("visualizer"));
+    document.getElementById("popoutVisualizerButton").addEventListener("click", popoutVisualizer);
     stopButton.addEventListener("click", stopTraining);
     resetButton.addEventListener("click", () => fillForm(defaults));
     document.getElementById("copyCommandButton").addEventListener("click", copyCommand);
@@ -2912,6 +3061,8 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById("metricSelect").addEventListener("change", refresh);
     document.getElementById("zoomInput").addEventListener("input", refresh);
     document.getElementById("smoothInput").addEventListener("input", refresh);
+    form.addEventListener("input", () => renderVisualizerTab({running: false, config: readForm()}));
+    form.addEventListener("change", () => renderVisualizerTab({running: false, config: readForm()}));
     if (localStorage.getItem("reefscapeStudioDark") === "1") {
       document.body.classList.add("dark");
     }
