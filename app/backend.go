@@ -65,6 +65,13 @@ type StateResponse struct {
 	Snapshot        map[string]any `json:"snapshot,omitempty"`
 }
 
+type LiveStateResponse struct {
+	Running  bool           `json:"running"`
+	Current  string         `json:"current"`
+	LastCode *int           `json:"lastCode,omitempty"`
+	Snapshot map[string]any `json:"snapshot,omitempty"`
+}
+
 type TrainConfig struct {
 	Timesteps       string `json:"timesteps"`
 	ModelOut        string `json:"modelOut"`
@@ -150,6 +157,21 @@ func (a *App) GetState() StateResponse {
 		response.PythonError = a.pyErr.Error()
 	}
 	return response
+}
+
+func (a *App) GetLiveState() LiveStateResponse {
+	a.mu.Lock()
+	running := a.running
+	current := a.current
+	lastCode := a.lastCode
+	a.mu.Unlock()
+
+	return LiveStateResponse{
+		Running:  running,
+		Current:  current,
+		LastCode: lastCode,
+		Snapshot: loadSnapshotMap(filepath.Join(a.repoRoot, stateFile)),
+	}
 }
 
 func (a *App) RunAction(id string) error {

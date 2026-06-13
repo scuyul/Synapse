@@ -4,10 +4,8 @@ import {
   Activity,
   Bot,
   Box,
-  Cpu,
   FolderOpen,
   Gauge,
-  Hammer,
   Play,
   Radio,
   Square,
@@ -16,6 +14,7 @@ import {
 } from "lucide-react";
 import {
   EvaluateArtifact,
+  GetLiveState,
   GetState,
   OpenAdvantageScope,
   OpenFolder,
@@ -46,10 +45,7 @@ const defaultConfig = {
 
 const actions = [
   ["setup_deps", Wrench, "Setup + Deps"],
-  ["doctor", Activity, "Doctor"],
-  ["checks", Hammer, "Checks"],
-  ["build", Cpu, "Build"],
-  ["installer", Box, "Installer"]
+  ["doctor", Activity, "Doctor"]
 ];
 
 function App() {
@@ -59,11 +55,12 @@ function App() {
   const [cli, setCli] = useState("python menu.py");
   const [selectedModel, setSelectedModel] = useState("");
   const [error, setError] = useState("");
-  const refreshInFlight = useRef(false);
+  const fullRefreshInFlight = useRef(false);
+  const liveRefreshInFlight = useRef(false);
 
-  const refresh = async () => {
-    if (refreshInFlight.current) return;
-    refreshInFlight.current = true;
+  const refreshFull = async () => {
+    if (fullRefreshInFlight.current) return;
+    fullRefreshInFlight.current = true;
     try {
       const next = await GetState();
       setState(next);
@@ -71,21 +68,48 @@ function App() {
     } catch (err) {
       setError(String(err));
     } finally {
-      refreshInFlight.current = false;
+      fullRefreshInFlight.current = false;
+    }
+  };
+
+  const refreshLive = async () => {
+    if (liveRefreshInFlight.current) return;
+    liveRefreshInFlight.current = true;
+    try {
+      const live = await GetLiveState();
+      setState((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          running: live.running,
+          current: live.current,
+          lastCode: live.lastCode ?? current.lastCode,
+          snapshot: live.snapshot || current.snapshot
+        };
+      });
+    } catch {
+      // Full refresh owns user-facing error reporting.
+    } finally {
+      liveRefreshInFlight.current = false;
     }
   };
 
   useEffect(() => {
-    refresh();
-    const id = window.setInterval(refresh, 33);
-    return () => window.clearInterval(id);
+    refreshFull();
+    refreshLive();
+    const fullId = window.setInterval(refreshFull, 650);
+    const liveId = window.setInterval(refreshLive, 33);
+    return () => {
+      window.clearInterval(fullId);
+      window.clearInterval(liveId);
+    };
   }, []);
 
   const run = async (fn) => {
     try {
       setError("");
       await fn();
-      await refresh();
+      await refreshFull();
     } catch (err) {
       setError(String(err));
     }
@@ -137,9 +161,9 @@ function App() {
       <section className="content">
         <header className="hero">
           <div className="hero-copy">
-            <span>Blue alliance policy stack</span>
-            <h2>Molten Glass Drive Lab</h2>
-            <p>Native React desktop control for CUDA training, live field state, models, and telemetry.</p>
+            <span>Native REEFSCAPE control</span>
+            <h2>Drive Lab</h2>
+            <p>Train, replay, inspect, and ship policies from one desktop app.</p>
           </div>
           <div className="hero-stats">
             <Metric label="Step" value={formatInt(latestMetric?.step || snapshot?.training?.step || 0)} />
@@ -149,7 +173,12 @@ function App() {
         </header>
 
         {error && <div className="error">{error}</div>}
-        {state?.current && <div className="running-banner">Running: {state.current}</div>}
+        {state?.current && (
+          <div className="running-banner">
+            <span>Running: {state.current}</span>
+            <button className="danger compact" onClick={() => run(Stop)}><Square size={15}/> Stop</button>
+          </div>
+        )}
         {state?.missingTraining?.length > 0 && (
           <div className="warning-banner">
             Training deps missing: {state.missingTraining.join(", ")}. Run Setup + Deps and wait for it to finish.
@@ -175,6 +204,7 @@ function App() {
             artifacts={state?.artifacts || []}
             selectedModel={selectedModel}
             setSelectedModel={setSelectedModel}
+            running={state?.running}
             onEvaluate={() => run(() => EvaluateArtifact(selectedModel))}
             onReplay={() => run(async () => {
               await ReplayArtifact(selectedModel);
@@ -275,23 +305,28 @@ function FieldView({ snapshot, live }) {
   );
 }
 
-function ModelsView({ artifacts, selectedModel, setSelectedModel, onEvaluate, onReplay }) {
+function ModelsView({ artifacts, selectedModel, setSelectedModel, running, onEvaluate, onReplay }) {
   return (
     <section className="panel table-panel">
       <div className="section-title"><Box size={18}/> Models</div>
       <div className="model-actions">
-        <button disabled={!selectedModel} onClick={onEvaluate}>Evaluate</button>
-        <button className="primary" disabled={!selectedModel} onClick={onReplay}><Play size={16}/> Run in Field</button>
+        <button disabled={running || !selectedModel} onClick={onEvaluate}>Evaluate</button>
+        <button className="primary" disabled={running || !selectedModel} onClick={onReplay}><Play size={16}/> Run in Field</button>
+        {selectedModel && <span className="selected-model">{selectedModel}</span>}
       </div>
-      <div className="table">
-        {artifacts.map((item) => (
-          <button key={item.path} className={selectedModel === item.path ? "row selected" : "row"} onClick={() => setSelectedModel(item.path)}>
-            <span>{item.path}</span>
-            <small>{item.size}</small>
-            <small>{item.modified}</small>
-          </button>
-        ))}
-      </div>
+      {artifacts.length > 0 ? (
+        <div className="table">
+          {artifacts.map((item) => (
+            <button key={item.path} className={selectedModel === item.path ? "row selected" : "row"} onClick={() => setSelectedModel(item.path)}>
+              <span>{item.path}</span>
+              <small>{item.size}</small>
+              <small>{item.modified}</small>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">No model archives found in models or runs.</div>
+      )}
     </section>
   );
 }
@@ -402,27 +437,64 @@ function drawChart(ctx, width, height, metrics) {
   ctx.font = "700 13px Inter, Segoe UI, sans-serif";
   ctx.fillText("Reward", 28, 22);
   const points = metrics.filter((m) => Number.isFinite(m.reward) && Number.isFinite(m.step));
-  if (points.length < 2) {
+  if (points.length === 0) {
     ctx.font = "600 15px Inter, Segoe UI, sans-serif";
     ctx.fillText("Waiting for trainer metrics", 28, 42);
+    return;
+  }
+  if (points.length === 1) {
+    const point = points[0];
+    dot(ctx, width / 2, height / 2, 5, "#6dffbf");
+    ctx.fillStyle = "rgba(220,255,245,.72)";
+    ctx.font = "700 15px Inter, Segoe UI, sans-serif";
+    ctx.fillText(`Latest reward ${formatMetric(point.reward)}`, 28, 44);
     return;
   }
   const xs = points.map((p) => p.step);
   const ys = points.map((p) => p.reward);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  let minY = Math.min(...ys), maxY = Math.max(...ys);
+  if (Math.abs(maxY - minY) < 1e-6) {
+    minY -= 1;
+    maxY += 1;
+  }
   const spanX = Math.max(1, maxX - minX);
   const spanY = Math.max(1e-6, maxY - minY);
   ctx.fillStyle = "rgba(220,255,245,.64)";
   ctx.font = "600 12px Inter, Segoe UI, sans-serif";
   ctx.fillText(`max ${formatMetric(maxY)}`, width - 112, 24);
   ctx.fillText(`min ${formatMetric(minY)}`, width - 112, height - 12);
+  if (minY < 0 && maxY > 0) {
+    const zeroY = height - pad - ((0 - minY) / spanY) * (height - pad * 2);
+    ctx.strokeStyle = "rgba(255,255,255,.24)";
+    ctx.lineWidth = 1;
+    line(ctx, pad, zeroY, width - pad, zeroY);
+  }
+  const mapped = points.map((p) => ({
+    x: pad + ((p.step - minX) / spanX) * (width - pad * 2),
+    y: height - pad - ((p.reward - minY) / spanY) * (height - pad * 2)
+  }));
+  const first = mapped[0];
+  const last = mapped.at(-1);
+
   ctx.beginPath();
-  points.forEach((p, i) => {
-    const x = pad + ((p.step - minX) / spanX) * (width - pad * 2);
-    const y = height - pad - ((p.reward - minY) / spanY) * (height - pad * 2);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  mapped.forEach((p, i) => {
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  });
+  ctx.lineTo(last.x, height - pad);
+  ctx.lineTo(first.x, height - pad);
+  ctx.closePath();
+  const fill = ctx.createLinearGradient(0, pad, 0, height - pad);
+  fill.addColorStop(0, "rgba(109,255,191,.22)");
+  fill.addColorStop(1, "rgba(109,255,191,0)");
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  ctx.beginPath();
+  mapped.forEach((p, i) => {
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
   });
   ctx.strokeStyle = "#6dffbf";
   ctx.lineWidth = 3;
@@ -430,6 +502,7 @@ function drawChart(ctx, width, height, metrics) {
   ctx.shadowBlur = 14;
   ctx.stroke();
   ctx.shadowBlur = 0;
+  dot(ctx, last.x, last.y, 4, "#eafff8");
 }
 
 function drawField(ctx, width, height, snap, time = 0) {
@@ -519,7 +592,7 @@ function deriveTrainingStatus(logs, current, metrics) {
     phase("Environment", /Using device:|CUDA device:/.test(text), current === "Setup + Install Training Dependencies" ? "active" : "pending", firstMatch(text, /Using device:.*|CUDA device:.*/)),
     phase("Heuristic training", Boolean(lastEpoch), /Heuristic pretraining/.test(text) && !/Training metrics will be written/.test(text), lastEpoch ? `epoch ${lastEpoch[1]}/${lastEpoch[2]} loss ${lastEpoch[3]}` : "waiting for imitation pretrain"),
     phase("PPO training", Boolean(metric?.step), current === "Train PPO", metric?.step ? `step ${formatInt(metric.step)} reward ${formatMetric(metric.reward)}` : "waiting for rollout metrics"),
-    phase("Visualizer", /visualization enabled|visualizer state/i.test(text), false, firstMatch(text, /Training visualization enabled.*|Native REEFSCAPE visualizer state.*/i)),
+    phase("Visualizer", /visualization enabled|visualizer state/i.test(text), current === "Run Model in Field", firstMatch(text, /Training visualization enabled.*|Native .*visualizer state.*/i)),
     phase("Checkpoint", /Checkpoint saved:|Wrote .*\.zip/.test(text), false, firstMatch(text, /Checkpoint saved:.*|Wrote .*\.zip/))
   ];
 

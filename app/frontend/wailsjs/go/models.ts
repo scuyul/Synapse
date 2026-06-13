@@ -18,6 +18,24 @@ export namespace main {
 	        this.modified = source["modified"];
 	    }
 	}
+	export class LiveStateResponse {
+	    running: boolean;
+	    current: string;
+	    lastCode?: number;
+	    snapshot?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveStateResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.current = source["current"];
+	        this.lastCode = source["lastCode"];
+	        this.snapshot = source["snapshot"];
+	    }
+	}
 	export class MetricRow {
 	    step: number;
 	    reward: number;

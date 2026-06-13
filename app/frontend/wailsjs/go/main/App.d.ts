@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function EvaluateArtifact(arg1:string):Promise<void>;
 
+export function GetLiveState():Promise<main.LiveStateResponse>;
+
 export function GetState():Promise<main.StateResponse>;
 
 export function OpenAdvantageScope():Promise<void>;

@@ -6,6 +6,10 @@ export function EvaluateArtifact(arg1) {
   return window['go']['main']['App']['EvaluateArtifact'](arg1);
 }
 
+export function GetLiveState() {
+  return window['go']['main']['App']['GetLiveState']();
+}
+
 export function GetState() {
   return window['go']['main']['App']['GetState']();
 }
