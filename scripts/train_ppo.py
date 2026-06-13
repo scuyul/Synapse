@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--open-visualizer",
         action="store_true",
-        help="Open the selected visualizer app/browser when training starts.",
+        help="Open the selected visualizer app when training starts.",
     )
     parser.add_argument("--advantage-port", type=int, default=5810)
     parser.add_argument("--custom-ui-port", type=int, default=8775)
@@ -223,12 +223,12 @@ def main() -> int:
                     state_path=args.custom_ui_state,
                     every_steps=args.viz_every_steps,
                     preview_steps=args.viz_preview_steps,
-                    open_browser=args.open_visualizer,
+                    open_app=args.open_visualizer,
                 )
             )
         )
-        print("Training visualization enabled for the custom REEFSCAPE UI.")
-        print(f"Open http://127.0.0.1:{args.custom_ui_port}")
+        print("Training visualization enabled for the native REEFSCAPE desktop visualizer.")
+        print(f"Desktop visualizer state: {args.custom_ui_state}")
 
     if args.checkpoint_every_steps > 0:
         callbacks.append(

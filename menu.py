@@ -35,7 +35,7 @@ def main() -> int:
         print()
         print(accent("REEFSCAPE RL Control", color, bold=True))
         print(accent("====================", color))
-        print(menu_line("1", "Open Training Studio", "recommended", color, 0))
+        print(menu_line("1", "Open Desktop App", "recommended", color, 0))
         print(menu_line("2", "Simple CUDA train", "recommended settings", color, 1))
         print(menu_line("3", "Check CUDA / RTX 4060", "", color, 2))
         print(menu_line("4", "Run tests", "", color, 3))
@@ -333,17 +333,7 @@ def run_rollout_log() -> None:
 
 
 def run_training_studio() -> None:
-    port = prompt_int("Training studio port", 8765)
-    open_browser = prompt_bool("Open browser automatically", True)
-    cmd = [
-        PYTHON,
-        "scripts/training_studio.py",
-        "--port",
-        str(port),
-    ]
-    if not open_browser:
-        cmd.append("--no-open")
-    run_command(cmd)
+    run_command([PYTHON, "scripts/training_studio.py"])
 
 
 def check_cuda() -> None:

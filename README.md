@@ -29,10 +29,11 @@ Create a local virtual environment and install the pinned CUDA runtime:
 reefscape-doctor
 ```
 
-Open the browser-based training studio. This is the primary path for launching CUDA training, saving configs, comparing runs, watching metrics, and managing model artifacts:
+Open the native desktop app. This is the primary path for setup, CUDA training, logs, metrics, model artifacts, AdvantageScope launch, and the built-in REEFSCAPE field visualizer:
 
 ```powershell
-python .\scripts\training_studio.py
+.\build.bat
+.\builds\ReefscapeRL\ReefscapeRL.exe
 ```
 
 The text menu is still available as a fallback for quick diagnostics and command-line flows:
@@ -47,10 +48,11 @@ Maintenance and release commands are available through a separate management men
 python .\manage.py
 ```
 
-This branch also includes an experimental Go app launcher. It compiles a native
-wrapper that finds the repo, picks `.venv` Python when available, and opens the
-main training, management, studio, visualizer, diagnostics, and release commands.
-Builds are written to `builds/`:
+The desktop app is a React/Wails application embedded in a native Windows
+window. It finds the repo, prefers `.venv` Python when available, and provides
+the main training, management, visualizer, diagnostics, and release commands
+without opening a browser or running a localhost UI. Builds are written to
+`builds/`:
 
 ```powershell
 .\build.bat
@@ -64,15 +66,16 @@ Windows installer, install Inno Setup and run:
 .\build.bat --installer
 ```
 
-Open the REEFSCAPE-specific visualizer for a custom 2025 game view. It runs a
-local browser dashboard with the reef, coral stations, objective, traffic robot,
-AI focus, and scoring state already wired in:
+Open the REEFSCAPE-specific visualizer from the desktop app for a custom 2025
+game view. It draws the reef, coral stations, objective, traffic robot, AI
+focus, and scoring state directly in the app:
 
 ```powershell
 python .\scripts\reefscape_visualizer.py
 ```
 
-Training preview can use AdvantageScope, the custom UI, both, or neither:
+Training preview can use AdvantageScope, the native desktop visualizer state,
+both, or neither:
 
 ```powershell
 python .\scripts\train_ppo.py --visualization-backend custom-ui
@@ -80,10 +83,10 @@ python .\scripts\train_ppo.py --visualization-backend advantagescope
 python .\scripts\train_ppo.py --visualization-backend both
 ```
 
-When launched from the browser training studio, choosing a live preview option
-also tries to open that visualizer automatically. `none` still writes logs,
-metrics, checkpoints, and model artifacts without opening a field view.
-Use `--open-visualizer` on the command line for the same automatic-open behavior.
+When launched from the desktop app, the built-in visualizer is the default field
+view. `none` still writes logs, metrics, checkpoints, and model artifacts without
+opening a field view. Use `--open-visualizer` on the command line to open the
+desktop app for the same live state file.
 
 The copied 2025 robot project lives in `robot_code/2025-robot/`. Training can opt into its drivetrain constants with the `2025-robot` robot profile. That changes simulator dynamics, so treat old models as incompatible unless you intentionally validate them or retrain:
 

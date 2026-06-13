@@ -1,4 +1,4 @@
-"""State snapshots for the REEFSCAPE-specific browser visualizer."""
+"""State snapshots for the REEFSCAPE-specific desktop visualizer."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def build_visualizer_snapshot(
     policy_name: str,
     running: bool,
 ) -> dict[str, Any]:
-    """Return a JSON-serializable 2025 game snapshot for the custom visualizer."""
+    """Return a JSON-serializable 2025 game snapshot for the desktop visualizer."""
 
     state = env.state
     if state is None:

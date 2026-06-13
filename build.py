@@ -79,11 +79,12 @@ def build_go_launcher(output: Path) -> None:
     if go is None:
         raise SystemExit("Go was not found on PATH. Install Go first.")
 
-    cmd = [go, "build", "-trimpath"]
-    if os.name == "nt":
-        cmd.extend(["-ldflags", "-H=windowsgui"])
-    cmd.extend(["-o", str(output), "."])
-    run(cmd, cwd=REPO_ROOT / "app")
+    wails = find_wails_command(go)
+    run([wails, "build", "-clean", "-nopackage", "-o", APP_EXE], cwd=REPO_ROOT / "app")
+    built = REPO_ROOT / "app" / "build" / "bin" / APP_EXE
+    if not built.exists():
+        raise SystemExit(f"Wails build did not produce {built}")
+    shutil.copy2(built, output)
 
 
 def copy_app_payload(app_dir: Path) -> None:
@@ -114,6 +115,7 @@ def copy_app_payload(app_dir: Path) -> None:
                     "env",
                     "logs",
                     "models",
+                    "node_modules",
                     "runs",
                     "venv",
                 ),
@@ -221,6 +223,32 @@ def find_inno_compiler() -> str | None:
         if candidate.exists():
             return str(candidate)
     return None
+
+
+def find_wails_command(go: str) -> str:
+    found = shutil.which("wails") or shutil.which("wails.exe")
+    if found:
+        return found
+
+    gopath_result = subprocess.run(
+        [go, "env", "GOPATH"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if gopath_result.returncode == 0:
+        suffix = "wails.exe" if os.name == "nt" else "wails"
+        candidate = Path(gopath_result.stdout.strip()) / "bin" / suffix
+        if candidate.exists():
+            return str(candidate)
+
+    print("Wails CLI was not found; installing github.com/wailsapp/wails/v2/cmd/wails@v2.12.0")
+    run([go, "install", "github.com/wailsapp/wails/v2/cmd/wails@v2.12.0"], cwd=REPO_ROOT / "app")
+    if gopath_result.returncode == 0:
+        candidate = Path(gopath_result.stdout.strip()) / "bin" / ("wails.exe" if os.name == "nt" else "wails")
+        if candidate.exists():
+            return str(candidate)
+    raise SystemExit("Wails CLI install finished, but the executable was not found.")
 
 
 def run(cmd: list[str], *, cwd: Path) -> None:

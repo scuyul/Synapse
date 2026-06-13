@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import time
 
 import numpy as np
@@ -100,11 +99,11 @@ class CustomUiTrainingConfig:
     every_steps: int = 512
     preview_steps: int = 25
     seed: int = 2026
-    open_browser: bool = False
+    open_app: bool = False
 
 
 class CustomUiTrainingCallback(BaseCallback):
-    """Streams periodic policy rollouts to the browser-based REEFSCAPE UI."""
+    """Streams periodic policy rollouts to the native REEFSCAPE desktop visualizer."""
 
     def __init__(self, config: CustomUiTrainingConfig):
         super().__init__()
@@ -121,7 +120,6 @@ class CustomUiTrainingCallback(BaseCallback):
         self.preview_obs: np.ndarray | None = None
         self.preview_episode = 0
         self.preview_return = 0.0
-        self.process: subprocess.Popen[str] | None = None
         self.last_action = [0.0, 0.0, 0.0, 0.0, 0.0, 0.75]
         self.last_reward = 0.0
 
@@ -130,8 +128,9 @@ class CustomUiTrainingCallback(BaseCallback):
         obs, _ = self.preview_env.reset(seed=self.config.seed)
         self.preview_obs = np.asarray(obs, dtype=np.float32)
         self._write_snapshot()
-        self._start_visualizer_server()
-        print(f"Custom REEFSCAPE visualizer started on http://127.0.0.1:{self.config.port}")
+        if self.config.open_app:
+            _try_open_desktop_app()
+        print(f"Native REEFSCAPE visualizer state started at {self.config.state_path}")
 
     def _on_step(self) -> bool:
         if self.preview_obs is None:
@@ -156,10 +155,6 @@ class CustomUiTrainingCallback(BaseCallback):
                 self._write_snapshot()
                 break
         return True
-
-    def _on_training_end(self) -> None:
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
 
     def _write_snapshot(self) -> None:
         payload = build_visualizer_snapshot(
@@ -196,29 +191,6 @@ class CustomUiTrainingCallback(BaseCallback):
                 tmp_path.unlink(missing_ok=True)
             except OSError:
                 pass
-
-    def _start_visualizer_server(self) -> None:
-        script = Path(__file__).resolve().parents[1] / "scripts" / "reefscape_visualizer.py"
-        cmd = [
-            sys.executable,
-            str(script),
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(self.config.port),
-            "--state-file",
-            str(self.config.state_path),
-        ]
-        if not self.config.open_browser:
-            cmd.append("--no-open")
-        self.process = subprocess.Popen(
-            cmd,
-            cwd=Path(__file__).resolve().parents[1],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-
 
 def _try_open_advantagescope() -> None:
     executable = _find_advantagescope_executable()
@@ -265,3 +237,22 @@ def _find_advantagescope_executable() -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def _try_open_desktop_app() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates = [
+        repo_root / "ReefscapeRL.exe",
+        repo_root / "builds" / "ReefscapeRL" / "ReefscapeRL.exe",
+        repo_root / "builds" / "reefscape-app.exe",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            try:
+                subprocess.Popen([str(candidate)], cwd=repo_root)
+                print(f"Opened REEFSCAPE desktop app: {candidate}")
+                return
+            except OSError as exc:
+                print(f"Could not open REEFSCAPE desktop app: {exc}")
+                return
+    print("Native visualizer state is active. Open ReefscapeRL.exe to view it.")
