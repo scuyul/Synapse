@@ -287,6 +287,8 @@ h1, h2, p { margin: 0; }
   min-height: max-content;
   display: grid;
   grid-template-columns: minmax(520px, 1.15fr) minmax(420px, .85fr);
+  grid-auto-rows: max-content;
+  align-items: start;
   gap: 16px;
   padding-bottom: 18px;
 }
@@ -303,10 +305,26 @@ h1, h2, p { margin: 0; }
 }
 
 .form-panel {
-  overflow: visible;
+  grid-column: 1 / 2;
+  align-self: start;
+  height: auto;
+  overflow: hidden;
+}
+
+.status-panel {
+  grid-column: 2 / 3;
+  align-self: start;
+  max-height: calc(100vh - 236px);
+}
+
+.status-panel .status-flow {
+  max-height: calc(100vh - 310px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .content::-webkit-scrollbar,
+.status-panel .status-flow::-webkit-scrollbar,
 .table::-webkit-scrollbar,
 pre::-webkit-scrollbar {
   width: 10px;
@@ -314,6 +332,7 @@ pre::-webkit-scrollbar {
 }
 
 .content::-webkit-scrollbar-track,
+.status-panel .status-flow::-webkit-scrollbar-track,
 .table::-webkit-scrollbar-track,
 pre::-webkit-scrollbar-track {
   background: rgba(1, 10, 20, .38);
@@ -321,6 +340,7 @@ pre::-webkit-scrollbar-track {
 }
 
 .content::-webkit-scrollbar-thumb,
+.status-panel .status-flow::-webkit-scrollbar-thumb,
 .table::-webkit-scrollbar-thumb,
 pre::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(116,255,189,.52), rgba(94,215,255,.42));
@@ -558,6 +578,8 @@ pre {
   html, body, #root { overflow: auto; }
   .rail { min-height: auto; }
   .grid-layout { grid-template-columns: 1fr; }
+  .form-panel, .status-panel { grid-column: 1; }
+  .status-panel, .status-panel .status-flow { max-height: none; }
   .hero { flex-direction: column; }
   .hero-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

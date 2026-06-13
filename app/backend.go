@@ -44,6 +44,10 @@ type App struct {
 	lastCode             *int
 	missingTrainingCache []string
 	missingTrainingAt    time.Time
+	metricsCache         []MetricRow
+	metricsAt            time.Time
+	artifactsCache       []ArtifactRow
+	artifactsAt          time.Time
 }
 
 type StateResponse struct {
@@ -138,8 +142,8 @@ func (a *App) GetState() StateResponse {
 		Current:         current,
 		Logs:            logs,
 		LastCode:        lastCode,
-		Metrics:         loadMetrics(filepath.Join(a.repoRoot, metricsFile)),
-		Artifacts:       scanArtifacts(a.repoRoot),
+		Metrics:         a.metricsCached(),
+		Artifacts:       a.artifactsCached(),
 		Snapshot:        loadSnapshotMap(filepath.Join(a.repoRoot, stateFile)),
 	}
 	if a.pyErr != nil {
@@ -277,7 +281,20 @@ func (a *App) ReplayArtifact(path string) error {
 	if path == "" {
 		return errors.New("select a model first")
 	}
-	return a.runPython("Replay Model", "scripts/run_trained_model.py", "--model", path, "--fixed-start", "--loop", "--mental-visualizer")
+	if err := a.ensureTrainingReady(); err != nil {
+		a.appendLog("Model replay blocked: " + err.Error())
+		return err
+	}
+	return a.runPython(
+		"Run Model in Field",
+		"scripts/run_trained_model.py",
+		"--model", path,
+		"--fixed-start",
+		"--loop",
+		"--speed", "2.0",
+		"--visualization-backend", "custom-ui",
+		"--custom-ui-state", stateFile,
+	)
 }
 
 func (a *App) trainingArgs(config TrainConfig, smoke bool) []string {
@@ -449,8 +466,44 @@ func (a *App) finishProcess(code int, message string) {
 	a.python = python
 	a.pyErr = pyErr
 	a.missingTrainingAt = time.Time{}
+	a.metricsAt = time.Time{}
+	a.artifactsAt = time.Time{}
 	a.mu.Unlock()
 	a.appendLog(message)
+}
+
+func (a *App) metricsCached() []MetricRow {
+	a.mu.Lock()
+	if time.Since(a.metricsAt) < 250*time.Millisecond {
+		cached := append([]MetricRow(nil), a.metricsCache...)
+		a.mu.Unlock()
+		return cached
+	}
+	a.mu.Unlock()
+
+	metrics := loadMetrics(filepath.Join(a.repoRoot, metricsFile))
+	a.mu.Lock()
+	a.metricsCache = append([]MetricRow(nil), metrics...)
+	a.metricsAt = time.Now()
+	a.mu.Unlock()
+	return metrics
+}
+
+func (a *App) artifactsCached() []ArtifactRow {
+	a.mu.Lock()
+	if time.Since(a.artifactsAt) < 2*time.Second {
+		cached := append([]ArtifactRow(nil), a.artifactsCache...)
+		a.mu.Unlock()
+		return cached
+	}
+	a.mu.Unlock()
+
+	artifacts := scanArtifacts(a.repoRoot)
+	a.mu.Lock()
+	a.artifactsCache = append([]ArtifactRow(nil), artifacts...)
+	a.artifactsAt = time.Now()
+	a.mu.Unlock()
+	return artifacts
 }
 
 func (a *App) ensureTrainingReady() error {
@@ -571,7 +624,7 @@ func loadMetrics(path string) []MetricRow {
 		}
 		rows = append(rows, MetricRow{
 			Step:   step,
-			Reward: number(raw["rollout/ep_rew_mean"]),
+			Reward: firstNumber(raw, "rollout/ep_rew_mean", "sim/latest_episode_reward", "episode_reward", "reward"),
 			Loss:   number(raw["train/loss"]),
 			FPS:    number(raw["time/fps"]),
 			Event:  fmt.Sprint(raw["event"]),
@@ -581,6 +634,15 @@ func loadMetrics(path string) []MetricRow {
 		rows = rows[len(rows)-300:]
 	}
 	return rows
+}
+
+func firstNumber(row map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		if value, ok := row[key]; ok {
+			return number(value)
+		}
+	}
+	return 0
 }
 
 func scanArtifacts(repoRoot string) []ArtifactRow {

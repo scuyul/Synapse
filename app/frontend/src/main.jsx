@@ -59,20 +59,25 @@ function App() {
   const [cli, setCli] = useState("python menu.py");
   const [selectedModel, setSelectedModel] = useState("");
   const [error, setError] = useState("");
+  const refreshInFlight = useRef(false);
 
   const refresh = async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
       const next = await GetState();
       setState(next);
       setError("");
     } catch (err) {
       setError(String(err));
+    } finally {
+      refreshInFlight.current = false;
     }
   };
 
   useEffect(() => {
     refresh();
-    const id = window.setInterval(refresh, 700);
+    const id = window.setInterval(refresh, 33);
     return () => window.clearInterval(id);
   }, []);
 
@@ -171,7 +176,10 @@ function App() {
             selectedModel={selectedModel}
             setSelectedModel={setSelectedModel}
             onEvaluate={() => run(() => EvaluateArtifact(selectedModel))}
-            onReplay={() => run(() => ReplayArtifact(selectedModel))}
+            onReplay={() => run(async () => {
+              await ReplayArtifact(selectedModel);
+              setTab("field");
+            })}
           />
         )}
         {tab === "logs" && (
@@ -212,7 +220,7 @@ function TrainView({ config, setConfig, running, onStart, onSmoke, onStop, metri
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel status-panel">
         <div className="section-title"><Activity size={18}/> Current Status</div>
         <TrainingStatus logs={logs} current={current} metrics={metrics} />
       </section>
@@ -273,7 +281,7 @@ function ModelsView({ artifacts, selectedModel, setSelectedModel, onEvaluate, on
       <div className="section-title"><Box size={18}/> Models</div>
       <div className="model-actions">
         <button disabled={!selectedModel} onClick={onEvaluate}>Evaluate</button>
-        <button disabled={!selectedModel} onClick={onReplay}>Replay</button>
+        <button className="primary" disabled={!selectedModel} onClick={onReplay}><Play size={16}/> Run in Field</button>
       </div>
       <div className="table">
         {artifacts.map((item) => (
@@ -390,9 +398,11 @@ function drawChart(ctx, width, height, metrics) {
   ctx.lineWidth = 1;
   for (let x = pad; x < width; x += 58) line(ctx, x, pad, x, height - pad);
   for (let y = pad; y < height; y += 42) line(ctx, pad, y, width - pad, y);
+  ctx.fillStyle = "rgba(220,255,245,.72)";
+  ctx.font = "700 13px Inter, Segoe UI, sans-serif";
+  ctx.fillText("Reward", 28, 22);
   const points = metrics.filter((m) => Number.isFinite(m.reward) && Number.isFinite(m.step));
   if (points.length < 2) {
-    ctx.fillStyle = "rgba(220,255,245,.72)";
     ctx.font = "600 15px Inter, Segoe UI, sans-serif";
     ctx.fillText("Waiting for trainer metrics", 28, 42);
     return;
@@ -403,6 +413,10 @@ function drawChart(ctx, width, height, metrics) {
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const spanX = Math.max(1, maxX - minX);
   const spanY = Math.max(1e-6, maxY - minY);
+  ctx.fillStyle = "rgba(220,255,245,.64)";
+  ctx.font = "600 12px Inter, Segoe UI, sans-serif";
+  ctx.fillText(`max ${formatMetric(maxY)}`, width - 112, 24);
+  ctx.fillText(`min ${formatMetric(minY)}`, width - 112, height - 12);
   ctx.beginPath();
   points.forEach((p, i) => {
     const x = pad + ((p.step - minX) / spanX) * (width - pad * 2);
