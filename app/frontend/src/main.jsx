@@ -154,7 +154,7 @@ function App() {
         </div>
 
         <button className="wide-command" onClick={() => run(OpenFolder)}><FolderOpen size={17}/> Project Folder</button>
-        <button className="wide-command" onClick={() => run(OpenAdvantageScope)}><Radio size={17}/> AdvantageScope</button>
+        <button className="wide-command" disabled={state?.running} onClick={() => run(OpenAdvantageScope)}><Radio size={17}/> Host AdvantageScope</button>
         <button className="egg" title="2220" />
       </aside>
 
@@ -162,7 +162,7 @@ function App() {
         <header className="hero">
           <div className="hero-copy">
             <span>Native REEFSCAPE control</span>
-            <h2>Drive Lab</h2>
+            <h2>Synapse</h2>
             <p>Train, replay, inspect, and ship policies from one desktop app.</p>
           </div>
           <div className="hero-stats">

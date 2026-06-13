@@ -268,26 +268,19 @@ func (a *App) OpenFolder() error {
 }
 
 func (a *App) OpenAdvantageScope() error {
-	candidates := []string{}
-	if env := strings.TrimSpace(os.Getenv("ADVANTAGESCOPE_PATH")); env != "" {
-		candidates = append(candidates, env)
+	if err := a.ensureTrainingReady(); err != nil {
+		a.appendLog("AdvantageScope stream blocked: " + err.Error())
+		return err
 	}
-	if path, err := exec.LookPath("advantagescope"); err == nil {
-		candidates = append(candidates, path)
-	}
-	candidates = append(candidates,
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "AdvantageScope", "AdvantageScope.exe"),
-		`C:\Program Files\AdvantageScope\AdvantageScope.exe`,
-		`C:\Program Files (x86)\AdvantageScope\AdvantageScope.exe`,
+	return a.runPython(
+		"AdvantageScope NetworkTables",
+		"scripts/live_advantagescope.py",
+		"--policy", "heuristic",
+		"--fixed-start",
+		"--loop",
+		"--speed", "1.0",
+		"--port", "5810",
 	)
-	for _, candidate := range candidates {
-		if fileExists(candidate) {
-			a.appendLog("Opened AdvantageScope: " + candidate)
-			return exec.Command(candidate).Start()
-		}
-	}
-	a.appendLog("AdvantageScope was not found. Open it manually and connect to 127.0.0.1:5810.")
-	return errors.New("AdvantageScope was not found")
 }
 
 func (a *App) EvaluateArtifact(path string) error {
