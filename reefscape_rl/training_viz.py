@@ -192,6 +192,7 @@ class CustomUiTrainingCallback(BaseCallback):
             except OSError:
                 pass
 
+
 def _try_open_advantagescope() -> None:
     executable = _find_advantagescope_executable()
     if executable is None:

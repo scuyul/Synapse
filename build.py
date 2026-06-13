@@ -245,7 +245,11 @@ def find_wails_command(go: str) -> str:
     print("Wails CLI was not found; installing github.com/wailsapp/wails/v2/cmd/wails@v2.12.0")
     run([go, "install", "github.com/wailsapp/wails/v2/cmd/wails@v2.12.0"], cwd=REPO_ROOT / "app")
     if gopath_result.returncode == 0:
-        candidate = Path(gopath_result.stdout.strip()) / "bin" / ("wails.exe" if os.name == "nt" else "wails")
+        candidate = (
+            Path(gopath_result.stdout.strip())
+            / "bin"
+            / ("wails.exe" if os.name == "nt" else "wails")
+        )
         if candidate.exists():
             return str(candidate)
     raise SystemExit("Wails CLI install finished, but the executable was not found.")

@@ -101,16 +101,16 @@ def main() -> int:
     use_advantagescope = args.visualization_backend in {"advantagescope", "both"}
     use_custom_ui = args.visualization_backend in {"custom-ui", "both"}
     publisher = (
-        AdvantageScopeNtPublisher.start_server(port=args.port)
-        if use_advantagescope
-        else None
+        AdvantageScopeNtPublisher.start_server(port=args.port) if use_advantagescope else None
     )
     mental_visualizer = (
         MentalVisualizerPublisher(publisher.inst)
         if args.mental_visualizer and publisher is not None
         else None
     )
-    custom_ui = CustomUiReplayWriter(args.custom_ui_state, args.model.stem) if use_custom_ui else None
+    custom_ui = (
+        CustomUiReplayWriter(args.custom_ui_state, args.model.stem) if use_custom_ui else None
+    )
     controller = None
     if args.xbox_defense:
         try:
@@ -140,7 +140,9 @@ def main() -> int:
             if publisher is not None:
                 publisher.publish(env)
             if custom_ui is not None:
-                custom_ui.write(env, [0.0, 0.0, 0.0, 0.0, 0.0, 0.75], 0.0, replay_step, episode, episode_return)
+                custom_ui.write(
+                    env, [0.0, 0.0, 0.0, 0.0, 0.0, 0.75], 0.0, replay_step, episode, episode_return
+                )
             while True:
                 if publisher is not None:
                     publisher.apply_tunables(env)
@@ -171,7 +173,9 @@ def main() -> int:
                         preview_episode=episode,
                     )
                 if custom_ui is not None:
-                    custom_ui.write(env, sim_action, float(reward), replay_step, episode, episode_return)
+                    custom_ui.write(
+                        env, sim_action, float(reward), replay_step, episode, episode_return
+                    )
                 time.sleep(max(0.0, env.config.dt_s / max(args.speed, 0.001)))
                 if terminated or truncated:
                     print(

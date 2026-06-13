@@ -3,16 +3,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import subprocess
-import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Open the native REEFSCAPE desktop visualizer."
-    )
+    parser = argparse.ArgumentParser(description="Open the native REEFSCAPE desktop visualizer.")
     parser.add_argument("--state-file", default="logs/reefscape_visualizer_state.json")
     parser.add_argument("--host", default="127.0.0.1", help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=8775, help=argparse.SUPPRESS)
