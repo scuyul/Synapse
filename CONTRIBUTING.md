@@ -30,4 +30,4 @@ paths.
 ## Project direction
 
 Keep simulator changes deterministic when possible, add tests for reward or
-observation contract changes, and prefer small focused pull requests.
+observation contract changes.
