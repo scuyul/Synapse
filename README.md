@@ -1,6 +1,6 @@
 # Synapse / REEFSCAPE RL
 
-Note: This was made by over-caffeinated highschoolers and chatgpt things are: bad, broken, and violently vibe coded. Enter at your own risk
+Note: This was made by over-caffeinated and 'eepy highschoolers and chatgpt things are: bad, broken, and violently vibe coded. Enter at your own risk
 
 Synapse is a native Windows desktop app for a simplified FRC 2025 REEFSCAPE-style RL simulator. The app handles setup, training, model playback, live metrics, logs, and the built-in field visualizer in one place. The command line tools still exist, but the desktop app is the main way to use this now.
 
