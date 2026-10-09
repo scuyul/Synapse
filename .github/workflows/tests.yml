@@ -125,4 +125,6 @@ jobs:
           python -m pip install pip-audit==2.9.0
 
       - name: pip-audit
-        run: python -m pip_audit
+        # torch==2.11.0+cu130 requires setuptools<82, while this advisory is
+        # fixed only in setuptools>=83. Remove this exception when Torch allows it.
+        run: python -m pip_audit --ignore-vuln PYSEC-2026-3447
